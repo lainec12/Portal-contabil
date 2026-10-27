@@ -1,2 +1,1 @@
-PDF.js 5.6.205 bundled for local PDF text extraction in Portal Contábil.
-License: Apache-2.0. PDF content is parsed in the visitor's browser; the app does not upload the selected PDF.
+PDF.js 5.6.205 é reconstruído localmente no navegador a partir de partes do bundle armazenadas neste repositório. Os PDFs são processados no navegador e não enviados ao servidor.
