@@ -731,10 +731,23 @@
     const candidates=findDifferenceNoteCandidates([...unique.values()].map(d=>({...d,included:true})),Math.abs(r.difference));
     return candidates.exact.length||candidates.combination.length?candidates:null;
   }
+  function cfop929DifferenceLabel(documents,difference){
+    if(difference===null||!Number.isFinite(Number(difference))||Math.abs(difference)<=.01)return '';
+    const unique=new Map();
+    for(const d of documents||[]){
+      if(!d.included||!noteCfop929Codes(d.note).length)continue;
+      const id=d.note.key||d.note.name;if(!unique.has(id))unique.set(id,d);
+    }
+    const match=findDifferenceNoteCandidates([...unique.values()],Math.abs(difference)),selected=match.exact.length?match.exact:match.combination;
+    if(!selected.length)return '';
+    const codes=[...new Set(selected.flatMap(d=>noteCfop929Codes(d.note)))].sort().map(c=>c[0]+'.'+c.slice(1));
+    return `Diferença bate com ${codes.length===1?'o CFOP':'os CFOPs'} ${codes.join(' e ')}`;
+  }
   function xmlBookResult(r){
     if(!r.book||!r.xml)return 'Não comparável: falta total de um dos lados';
     if(Math.abs(r.difference)<=.01)return 'Confere';
     if(cancelledBookMatch(r))return 'diferença pode estar nas notas canceladas, favor confira';
+    const cfopClue=cfop929DifferenceLabel(r.xml.documents,r.difference);if(cfopClue)return cfopClue;
     return r.difference>0?`Sobra na soma dos XMLs: ${money(r.difference)} acima do PDF`:`Faltante aparente nos XMLs: ${money(Math.abs(r.difference))} para alcançar o PDF`;
   }
   // Mostra, no cartão do mês/movimento, se canceladas do lote podem explicar o excedente do Livro.
@@ -811,6 +824,20 @@
     }
     return hints.length?`<div class="notice" style="margin:12px 0"><b>Atenção: confira entrada e saída</b>${hints.join('')}<p class="fine">O P9 informa totais mensais. Este aviso aponta coincidência de valores entre movimentos; confirme a nota no lançamento antes de corrigir a escrituração.</p></div>`:'';
   }
+  // Lista auxiliar de notas com CFOP 5.929/6.929; não altera os totais da conferência.
+  function noteCfop929Codes(note){
+    return [...new Set([...String(note.cfops||'').split(/[,;\s]+/),...(note.cfopRows||[]).map(r=>r.cfop)].map(c=>String(c).replace(/\D/g,'')))].filter(c=>c==='5929'||c==='6929');
+  }
+  function selectCfop929Notes(records){
+    const found=new Map();
+    records.forEach((x,i)=>{
+      if(x.kind!=='nota')return;
+      if(!noteCfop929Codes(x).length)return;
+      const id=x.key||x.name||`sem-chave:${i}`;
+      if(!found.has(id))found.set(id,{x,i});
+    });
+    return [...found.values()];
+  }
   function renderXmlReport(){
     const c=xmlReportStats();
     const generatedAt=new Date().toLocaleString('pt-BR');const financialGroups=[{title:'Valor dos produtos',key:'produtos',effect:'Base informada pelo XML'},{title:'Descontos',key:'desconto',effect:'Podem reduzir o total'},{title:'Frete',key:'frete',effect:'Pode aumentar o total conforme a operação'},{title:'Seguro',key:'seguro',effect:'Pode aumentar o total conforme a operação'},{title:'Outras despesas',key:'outrasDespesas',effect:'Podem aumentar o total conforme a operação'},{title:'IPI',key:'ipi',effect:'Pode compor o total'},{title:'ICMS-ST',key:'icmsSt',effect:'Pode compor o total'},{title:'Imposto de Importação',key:'ii',effect:'Pode compor o total'},{title:'IPI devolvido',key:'ipiDevolvido',effect:'Componente informado no total da NF-e'},{title:'ICMS desonerado',key:'icmsDesonerado',effect:'Pode reduzir o valor da operação conforme o caso'},{title:'ICMS destacado',key:'icms',effect:'Informativo; não somar novamente sem validar a composição'},{title:'PIS',key:'pis',effect:'Informativo; confira CST e composição'},{title:'Cofins',key:'cofins',effect:'Informativo; confira CST e composição'},{title:'FCP / FCP-ST',key:'fcp',effect:'Informativo; pode ter campo próprio'},{title:'Tributos aproximados',key:'tributosAproximados',effect:'Informativo, não é parcela a somar automaticamente'}];const financialSummary=financialGroups.map(g=>{const found=c.notes.filter(n=>n.components&&n.components[g.key]!==null),total=found.reduce((a,n)=>a+(Number(n.components[g.key])||0),0);return `<tr><td>${esc(g.title)}</td><td>${found.length?money(total):'Não informado nos XMLs'}</td><td>${esc(g.effect)}</td></tr>`}).join('');const financialBlock=`<details class="answer-block" style="margin-top:14px"><summary><b>Composição financeira do lote — abrir detalhes</b></summary><div class="table-scroll"><table class="tax-table"><thead><tr><th>Componente</th><th>Soma encontrada</th><th>Como interpretar</th></tr></thead><tbody>${financialSummary}</tbody></table></div><p class="fine">A tabela soma os campos existentes nos XMLs. Ela não recalcula a regra tributária nem presume que ICMS, PIS, Cofins ou tributos informativos devam ser adicionados ao vNF. O total do documento é o campo vNF; confira cada natureza e o campo comparável no Livro Fiscal.</p></details>`;const summary=`<div class="xml-print-title"><h1>Portal Contábil · Relatório de XML e notas</h1><p>Gerado em ${esc(generatedAt)} · Análise local dos arquivos selecionados</p></div><div class="grid grid-2"><div class="answer-block"><b>Total bruto lido: ${money(c.totalGross)}</b><br>Soma de todas as notas encontradas, podendo incluir duplicidades.</div><div class="answer-block"><b>Total sem duplicidade de chave: ${money(c.totalUnique)}</b><br>Considera uma ocorrência por chave de acesso.</div><div class="answer-block"><b>Notas canceladas no lote: ${money(c.totalCancelled)}</b><br>${c.cancelledDocs} nota(s) com evento de cancelamento aceito.</div><div class="answer-block"><b>Sem cancelamento localizado: ${money(c.totalNotCancelled)}</b><br>Não significa situação ativa; só não foi encontrado evento de cancelamento neste lote.</div></div><p class="fine">${c.notes.length} XML(s) de nota · ${c.cancelledEvents} evento(s) de cancelamento aceitos · ${c.unmatched} cancelamento(s) sem XML da nota no lote · ${c.duplicates} chave(s) repetida(s) · ${c.events.length} evento(s) totais · ${c.errors} erro(s) de leitura · ${c.other} XML(s) sem estrutura reconhecida. A situação atual deve ser confirmada na SEFAZ.</p>`;
@@ -823,7 +850,11 @@
     const rows=xmlReport.map((x,i)=>renderRow(x,i,'all')).join('');
     const cancelledNotes=xmlReport.map((x,i)=>({x,i})).filter(({x})=>x.kind==='nota'&&(/cancelad/i.test(x.status)||!!x.cancelEvents?.length));
     const cancelledRows=cancelledNotes.map(({x,i})=>renderRow(x,i,'cancel')).join('');
-    xmlResults.innerHTML=(xmlServiceComparison?renderServiceBook(xmlServiceComparison):'')+(!xmlReport.some(record=>record.kind==='servico')||c.notes.length?summary:'')+renderXmlBookComparison()+(xmlReport.some(record=>record.kind==='servico')&&!xmlServiceComparison?`<p><b>${xmlReport.reduce((count,record)=>count+(record.service?.length||0),0)} NFS-e localizada(s).</b> Selecione o Livro ISSQN em PDF e clique em Comparar com Livro Fiscal.</p>`:'')+`<div class="button-row" style="margin-top:14px"><button class="primary" id="toggleCancelledNotes" type="button" aria-expanded="false" aria-controls="cancelledNotesPanel" ${cancelledNotes.length?'':'disabled'}>Ver notas canceladas (${cancelledNotes.length})</button></div><div id="cancelledNotesPanel" hidden class="answer-block" style="margin-top:10px"><b>Notas canceladas identificadas nos arquivos selecionados</b>${cancelledNotes.length?cancelledRows:'<p>Nenhuma nota cancelada foi identificada neste lote.</p>'}</div><details style="margin-top:14px"><summary><b>Notas e eventos do lote (${xmlReport.length}) — abrir lista completa</b></summary><div style="margin-top:10px">${rows}</div></details>`;
+    const cfop929Notes=selectCfop929Notes(xmlReport),cfop929Cancelled=({x})=>!!x.cancelEvents?.length||/^CANCELADA\b/i.test(x.status||'')||['101','151','155'].includes(String(x.cStat||'')),cfop929Active=cfop929Notes.filter(n=>!cfop929Cancelled(n)),cfop929Total=cfop929Active.reduce((sum,{x})=>sum+(Number(x.total)||0),0);
+    const cfop929Rows=cfop929Notes.map(({x,i})=>`<p style="margin:12px 0 0"><b>CFOP(s) no documento:</b> ${esc(x.cfops||[...new Set((x.cfopRows||[]).map(r=>r.cfop))].join(', '))}</p>`+renderRow(x,i,'cfop929')).join('');
+    const cfop929Panel=`<div class="button-row" style="margin-top:10px"><button class="primary" id="toggleCfop929Notes" type="button" aria-expanded="false" aria-controls="cfop929NotesPanel" ${cfop929Notes.length?'':'disabled'}>Ver notas com CFOP 5.929 / 6.929 (${cfop929Notes.length})</button></div><div id="cfop929NotesPanel" hidden class="answer-block" style="margin-top:10px"><b>Notas presentes com CFOP 5.929 ou 6.929</b><p>${cfop929Notes.length} nota(s) única(s) · ${cfop929Notes.length-cfop929Active.length} com cancelamento identificado.<br><b>Valor das notas sem cancelamento identificado:</b> ${money(cfop929Total)}</p><p class="fine">Consulta separada, sem modificar os totais da conferência. Cada chave é contada uma vez nesta lista. O valor acima usa o total completo da nota (vNF), inclusive se ela contiver itens com outros CFOPs. As chaves continuam recolhidas em “Abrir detalhes”.</p>${cfop929Rows}</div>`;
+
+    xmlResults.innerHTML=(xmlServiceComparison?renderServiceBook(xmlServiceComparison):'')+(!xmlReport.some(record=>record.kind==='servico')||c.notes.length?summary:'')+renderXmlBookComparison()+(xmlReport.some(record=>record.kind==='servico')&&!xmlServiceComparison?`<p><b>${xmlReport.reduce((count,record)=>count+(record.service?.length||0),0)} NFS-e localizada(s).</b> Selecione o Livro ISSQN em PDF e clique em Comparar com Livro Fiscal.</p>`:'')+`<div class="button-row" style="margin-top:14px"><button class="primary" id="toggleCancelledNotes" type="button" aria-expanded="false" aria-controls="cancelledNotesPanel" ${cancelledNotes.length?'':'disabled'}>Ver notas canceladas (${cancelledNotes.length})</button></div><div id="cancelledNotesPanel" hidden class="answer-block" style="margin-top:10px"><b>Notas canceladas identificadas nos arquivos selecionados</b>${cancelledNotes.length?cancelledRows:'<p>Nenhuma nota cancelada foi identificada neste lote.</p>'}</div>${cfop929Panel}<details style="margin-top:14px"><summary><b>Notas e eventos do lote (${xmlReport.length}) — abrir lista completa</b></summary><div style="margin-top:10px">${rows}</div></details>`;
     xmlResults.querySelectorAll('.xml-detail-toggle').forEach(button=>button.addEventListener('click',()=>{
       const panel=document.getElementById(button.getAttribute('aria-controls'));
       const open=button.getAttribute('aria-expanded')!=='true';
@@ -831,6 +862,8 @@
     }));
     xmlResults.querySelectorAll('.xml-download-button').forEach(button=>button.addEventListener('click',()=>downloadXmlNote(button.dataset.xmlIndex)));
     xmlResults.querySelectorAll('.danfe-button').forEach(button=>button.addEventListener('click',()=>openDanfePdf(button.dataset.xmlIndex)));
+    const cfop929Toggle=document.getElementById('toggleCfop929Notes'),cfop929PanelElement=document.getElementById('cfop929NotesPanel');
+    if(cfop929Toggle)cfop929Toggle.addEventListener('click',()=>{const open=cfop929Toggle.getAttribute('aria-expanded')!=='true';cfop929PanelElement.hidden=!open;cfop929Toggle.setAttribute('aria-expanded',String(open));cfop929Toggle.textContent=`${open?'Ocultar':'Ver'} notas com CFOP 5.929 / 6.929 (${cfop929Notes.length})`});
     const cancelledToggle=document.getElementById('toggleCancelledNotes'),cancelledPanel=document.getElementById('cancelledNotesPanel');
     if(cancelledToggle)cancelledToggle.addEventListener('click',()=>{const open=cancelledToggle.getAttribute('aria-expanded')!=='true';cancelledPanel.hidden=!open;cancelledToggle.setAttribute('aria-expanded',String(open));cancelledToggle.textContent=open?`Ocultar notas canceladas (${cancelledNotes.length})`:`Ver notas canceladas (${cancelledNotes.length})`;});
   }
@@ -1182,7 +1215,7 @@
     document.addEventListener('click',e=>{const route=e.target.closest('.calc-route');if(route){e.preventDefault();showPage('calculadoras');calcProfileFilter.value=route.dataset.calcProfile||'';calcSearch.value='';renderCalculatorCatalog();const selector=route.dataset.calcProfile?`[data-open-profile="${route.dataset.calcProfile}"]`:`[data-open-tax="${route.dataset.calcTax}"]`;setTimeout(()=>calcCatalog.querySelector(selector)?.click(),80);return}const taxRoute=e.target.closest('[data-calc-route-tax],[data-calc-route-profile]');if(taxRoute){e.preventDefault();const profile=taxRoute.dataset.calcRouteProfile||'';showPage('calculadoras');calcProfileFilter.value=profile;calcSearch.value='';renderCalculatorCatalog();const selector=profile?`[data-open-profile="${profile}"]`:`[data-open-tax="${taxRoute.dataset.calcRouteTax}"]`;setTimeout(()=>calcCatalog.querySelector(selector)?.click(),80);document.getElementById('answerModal').classList.remove('open');return}const link=e.target.closest('a[href^="#"]');if(link){const raw=link.getAttribute('href').slice(1),target=document.getElementById(raw);if(target){e.preventDefault();showPage(raw)}}});
     const initialHash=decodeURIComponent(location.hash.slice(1));showPage(document.getElementById(initialHash)?initialHash:'inicio',false);
     renderQuestions();
-    window.portalSheetBridge={getXmlNotes:()=>{xmlReportStats();return xmlReport.filter(n=>n.kind==='nota')},readBook:readFiscalBookPdf};
+    window.portalSheetBridge={getXmlNotes:()=>{xmlReportStats();return xmlReport.filter(n=>n.kind==='nota')},readBook:readFiscalBookPdf,cfopDifferenceLabel:cfop929DifferenceLabel};
 
   </script>
 <script type="module" src="./saam.mjs"></script><script type="module" src="./sheet-compare.mjs"></script></body>

@@ -65,9 +65,9 @@ export function normalizeReport(rows,{basis='reference',name='Planilha'}={}){
     if(!key&&!participant)fail('nota sem chave de acesso e sem CPF/CNPJ da contraparte para identificar o documento.');
     const id=key?`${direction}|${key}`:`${direction}|${period}|${model}|${series}|${num}|${participant}`;
     const old=notes.get(id);
-    if(old){if(old.amount!==amount||old.sit!==sit||old.period!==period||old.num!==num)fail('há valores, situação ou competência conflitantes para a mesma nota.');old.itemRows++;continue}
+    if(old){if(old.amount!==amount||old.sit!==sit||old.period!==period||old.num!==num)fail('há valores, situação ou competência conflitantes para a mesma nota.');old.itemRows++;old.cfops=[...new Set([...old.cfops,String(get(row,'cfop')).replace(/\D/g,'')].filter(Boolean))];continue}
     const ownEmission=String(get(row,'ind_emit')).trim()==='0';if(key&&ownEmission)companies.add(key.slice(6,20));
-    notes.set(id,{id,key,num,series,model,participant,partner:String(get(row,'nome_part')),date:docDate,entryDate,period,direction,amount,sit,cancelled:cancelCodes.has(sit),excluded:excludedCodes.has(sit),itemRows:1});
+    notes.set(id,{id,key,num,series,model,participant,partner:String(get(row,'nome_part')),date:docDate,entryDate,period,direction,amount,sit,cancelled:cancelCodes.has(sit),excluded:excludedCodes.has(sit),itemRows:1,cfops:[String(get(row,'cfop')).replace(/\D/g,'')].filter(Boolean)});
   }
   if(!notes.size)throw new Error('A planilha não contém notas para comparar.');
   return {name,notes:[...notes.values()],sourceRows,companies:[...companies]};
@@ -80,7 +80,7 @@ export function fromXml(records,ownCnpj){
     const id=n.key?`${direction}|${n.key}`:`${direction}|${n.name}`;
     const cancelled=!!n.cancelEvents?.length||['101','151','155'].includes(String(n.cStat))||/^CANCELADA\b/i.test(n.status||'');
     const amount=cents(Number(n.total));if(amount===null)throw new Error('XML com valor inválido: '+(n.nfe||n.name));
-    const note={id,key:n.key||'',num:cleanId(n.nfe),series:cleanId(n.serie),model:cleanId(n.model==='NFC-e'?'65':'55'),participant:direction==='entrada'?n.emitId:n.destId,partner:direction==='entrada'?n.emit:n.dest,date:n.emissao?.slice(0,10)||'',period:n.competencia,direction,amount,cancelled,excluded:cancelled||['110','301','302'].includes(String(n.cStat)),sit:cancelled?'Cancelada':n.status||'Não informado'};
+    const note={cfops:[...String(n.cfops||'').split(/[,;\s]+/),...(n.cfopRows||[]).map(r=>r.cfop)].map(c=>String(c).replace(/\D/g,'')),id,key:n.key||'',num:cleanId(n.nfe),series:cleanId(n.serie),model:cleanId(n.model==='NFC-e'?'65':'55'),participant:direction==='entrada'?n.emitId:n.destId,partner:direction==='entrada'?n.emit:n.dest,date:n.emissao?.slice(0,10)||'',period:n.competencia,direction,amount,cancelled,excluded:cancelled||['110','301','302'].includes(String(n.cStat)),sit:cancelled?'Cancelada':n.status||'Não informado'};
     const old=notes.get(id);if(old&&old.amount!==note.amount)throw new Error('XMLs com a mesma chave e valores conflitantes.');
     if(!old)notes.set(id,note);else if(cancelled){old.cancelled=true;old.excluded=true}
   }
@@ -144,7 +144,13 @@ function neutralizeCsv(x){const text=String(x??'');return '"'+(/^[=+@\t\r]/.test
 function download(text,name,type){const url=URL.createObjectURL(new Blob(['\ufeff'+text],{type})),link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 function noteDescription(n){return n?`${esc(n.num)} · série ${esc(n.series||'—')}<br><small>${esc(n.partner||n.participant||'')}</small>${n.key?`<details><summary>Ver chave</summary><small>${esc(n.key)}</small></details>`:'<br><small>Sem chave informada</small>'}`:'—'}
 function noteState(n){return n?n.cancelled?'Cancelada':n.excluded?'Denegada / inutilizada':esc(n.sit):'—'}
-function monthlyHtml(rows,aName,bName){return `<div class="table-scroll"><table class="tax-table"><thead><tr><th>Competência</th><th>Movimento</th><th>${esc(aName)}</th><th>${esc(bName)}</th><th>Diferença (B − A)</th><th>Resultado</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.period)}</td><td>${movement(r.direction)}</td><td>${money(r.left?.amount)}</td><td>${money(r.right?.amount)}</td><td>${money(r.difference)}</td><td>${r.difference===null?'Sem total correspondente':Math.abs(r.difference)<=1?'Confere':'Divergência'}</td></tr>`).join('')||'<tr><td colspan="6">Nenhum registro no filtro selecionado.</td></tr>'}</tbody></table></div>`}
+function cfopClueForMonth(row,a,b){
+  if(row.difference===null||Math.abs(row.difference)<=1)return '';
+  const source=row.difference>0&&b.notes?b:a;
+  const docs=(source.notes||[]).filter(n=>n.period===row.period&&n.direction===row.direction&&!n.excluded).map(n=>({included:true,note:{key:n.key||n.id,name:n.id,total:n.amount/100,cfops:(n.cfops||[]).join(', ')}}));
+  return globalThis.portalSheetBridge?.cfopDifferenceLabel(docs,row.difference/100)||'';
+}
+function monthlyHtml(rows,aName,bName){return `<div class="table-scroll"><table class="tax-table"><thead><tr><th>Competência</th><th>Movimento</th><th>${esc(aName)}</th><th>${esc(bName)}</th><th>Diferença (B − A)</th><th>Resultado</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.period)}</td><td>${movement(r.direction)}</td><td>${money(r.left?.amount)}</td><td>${money(r.right?.amount)}</td><td>${money(r.difference)}</td><td>${r.difference===null?'Sem total correspondente':Math.abs(r.difference)<=1?'Confere':esc(r.cfopClue||'Divergência')}</td></tr>`).join('')||'<tr><td colspan="6">Nenhum registro no filtro selecionado.</td></tr>'}</tbody></table></div>`}
 
 if(typeof document!=='undefined'){
   const root=document.getElementById('sheetCompare');
@@ -182,6 +188,7 @@ if(typeof document!=='undefined'){
         }
         const a=filtered(rawA,$('sheetMonth').value,$('sheetDirection').value),b=filtered(rawB,$('sheetMonth').value,$('sheetDirection').value),months=compareMonthly(a,b),rows=kind==='pdf'?[]:reconcile(a,b);
         if(!a.notes.length)throw new Error('Nenhuma nota na planilha A para os filtros escolhidos.');
+        months.forEach(r=>r.cfopClue=cfopClueForMonth(r,a,b));
         const labels={a:'Planilha A',b:kind==='pdf'?'Livro PDF':kind==='xml'?'XMLs':'Planilha B'};
         const totals=monthlyHtml(months,labels.a,labels.b);
         const differences=rows.filter(r=>r.issues.length),same=rows.length-differences.length;
@@ -195,7 +202,7 @@ if(typeof document!=='undefined'){
       }catch(e){status.textContent=e.message||'Não foi possível concluir a comparação.';results.innerHTML=''}finally{run.disabled=false;root.querySelectorAll('input,select').forEach(el=>el.disabled=false)}
     };
     $('sheetCsv').onclick=()=>{if(!result)return;const {months,rows,labels}=result;const data=[['Tipo','Competência A','Competência B','Movimento','Chave','Número','Série','Valor '+labels.a,'Valor '+labels.b,'Diferença B − A','Situação A','Situação B','Resultado']];
-      for(const r of months)data.push(['TOTAL MENSAL',r.period,r.period,movement(r.direction),'','','',r.left?.amount/100,r.right?.amount/100,r.difference===null?'':r.difference/100,'','',r.difference===null?'Sem total correspondente':Math.abs(r.difference)<=1?'Confere':'Divergência']);
+      for(const r of months)data.push(['TOTAL MENSAL',r.period,r.period,movement(r.direction),'','','',r.left?.amount/100,r.right?.amount/100,r.difference===null?'':r.difference/100,'','',r.difference===null?'Sem total correspondente':Math.abs(r.difference)<=1?'Confere':r.cfopClue||'Divergência']);
       for(const r of rows){const n=r.left||r.right;data.push(['NOTA',r.left?.period,r.right?.period,movement(n.direction),n.key,n.num,n.series,r.left?r.left.amount/100:'',r.right?r.right.amount/100:'',r.difference===null?'':r.difference/100,r.left?.sit,r.right?.sit,r.issues.join(' · ')||'Confere'])}
       const csv=data.map(r=>r.map(v=>neutralizeCsv(typeof v==='number'?(Number.isFinite(v)?v.toFixed(2).replace('.',','):''):v)).join(';')).join('\r\n');download(csv,'comparativo-planilha-c100-c170.csv','text/csv;charset=utf-8');
     };
