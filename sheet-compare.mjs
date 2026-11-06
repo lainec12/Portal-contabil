@@ -72,6 +72,7 @@ export function normalizeReport(rows,{basis='reference',name='Planilha'}={}){
   if(!notes.size)throw new Error('A planilha não contém notas para comparar.');
   return {name,notes:[...notes.values()],sourceRows,companies:[...companies]};
 }
+export function hasOutputEntryCfop(n){return !!n&&n.direction==='saida'&&(n.cfops||[]).some(c=>/^[123]\d{3}$/.test(String(c).replace(/\D/g,'')))}
 function fallbackId(n){return [n.direction,n.model,n.series,n.num,n.participant].map(cleanId).join('|')}
 export function fromXml(records,ownCnpj){
   const notes=new Map();let outside=0;
@@ -105,9 +106,10 @@ export function reconcile(a,b){
       if(left.period!==right.period)issues.push('Competência diferente');
       if(left.date&&right.date&&left.date!==right.date)issues.push('Data de emissão diferente');
     }
+    if(hasOutputEntryCfop(left)||hasOutputEntryCfop(right))issues.push('Nota na saída com CFOP de entrada — verificar movimento');
     rows.push({left,right,issues,fallback:!!right&&fallback,difference:right?right.amount-left.amount:null});
   }
-  for(const right of b.notes)if(!used.has(right))rows.push({left:null,right,issues:['Somente na outra fonte'],difference:null});
+  for(const right of b.notes)if(!used.has(right))rows.push({left:null,right,issues:['Somente na outra fonte',...(hasOutputEntryCfop(right)?['Nota na saída com CFOP de entrada — verificar movimento']:[])],difference:null});
   return rows;
 }
 export function monthly(notes){
@@ -155,6 +157,12 @@ function ownEntryForMonth(row,a,b){
   const docs=notes.map(n=>({included:true,note:{key:n.key||n.id,name:n.id,total:n.amount/100,ownEntryEmission:true,original:n}}));
   return globalThis.portalSheetBridge?.ownEntryMatch(docs,row.difference===null?null:row.difference/100)||{notes:[],matched:[]};
 }
+function outputEntryCfopSheetHtml(a,b){
+  const found=new Map();
+  for(const n of [...(a.notes||[]),...(b.notes||[])]){if(!n.excluded&&hasOutputEntryCfop(n))found.set(n.key||n.id,n)}
+  const notes=[...found.values()];if(!notes.length)return '';
+  return `<div class="notice" style="margin:10px 0;border-left:4px solid #bb86ed;padding:12px"><b>Nota(s) na saída com CFOP de entrada — verificar movimento.</b><details><summary>Ver notas destacadas (${notes.length})</summary>${notes.map(n=>`<div style="padding:8px;margin:8px 0;border-left:4px solid #bb86ed"><b>NF-e nº ${esc(n.num)} · série ${esc(n.series||'—')} · ${money(n.amount)}</b><br>CFOP de entrada: ${esc(n.cfops.filter(c=>/^[123]\d{3}$/.test(c)).join(', '))}${n.key?`<details><summary>Ver chave</summary>${esc(n.key)}</details>`:''}</div>`).join('')}</details></div>`;
+}
 function ownEntrySheetHtml(months){
   return months.filter(r=>(r.difference===null||Math.abs(r.difference)>1)&&r.ownEntry?.notes.length).map(r=>{
     const matched=new Set(r.ownEntry.matched.map(d=>d.note.key||d.note.name));
@@ -201,7 +209,7 @@ if(typeof document!=='undefined'){
         if(!a.notes.length)throw new Error('Nenhuma nota na planilha A para os filtros escolhidos.');
         months.forEach(r=>{r.cfopClue=cfopClueForMonth(r,a,b);r.ownEntry=ownEntryForMonth(r,a,b);if(r.ownEntry.matched.length)r.cfopClue='Valor faltante bate com nota(s) de entrada de emissão própria'});
         const labels={a:'Planilha A',b:kind==='pdf'?'Livro PDF':kind==='xml'?'XMLs':'Planilha B'};
-        const totals=monthlyHtml(months,labels.a,labels.b)+ownEntrySheetHtml(months);
+        const totals=monthlyHtml(months,labels.a,labels.b)+ownEntrySheetHtml(months)+outputEntryCfopSheetHtml(a,b);
         const differences=rows.filter(r=>r.issues.length),same=rows.length-differences.length;
         const summary=`<p><b>${esc(rawA.name)}</b>${rawA.sheet?` · aba ${esc(rawA.sheet)}`:''}<br>${rawA.sourceRows} linha(s) de origem → ${rawA.notes.length} nota(s) única(s). O valor da nota é contado uma vez por chave, sem somar novamente as linhas dos itens.<br><b>Outra fonte:</b> ${esc(rawB.name)}${company?`<br><b>CNPJ da empresa:</b> ${esc(company)}`:'<br>CNPJ da empresa não identificado no relatório. Confira se as duas exportações pertencem ao mesmo estabelecimento.'}</p><p>Critério de mês: ${esc($('sheetDateBasis').selectedOptions[0].text)}. Totais excluem documentos marcados como cancelados, denegados ou inutilizados na respectiva fonte. Os valores originais permanecem nos detalhes.</p>${rawB.outside?`<p>${rawB.outside} XML(s) fora do CNPJ informado não entraram na comparação.</p>`:''}${kind==='pdf'?'<p>O P9 permite comparar totais por mês e movimento. Ele não identifica individualmente as notas.</p>':`<p><b>${same} nota(s) conferem · ${differences.length} registro(s) para revisar.</b> A chave de acesso tem prioridade. Sem chave, a correspondência usa modelo, série, número, movimento e CPF/CNPJ da contraparte.</p>`}`;
         const details=rows=>`<div class="table-scroll"><table class="tax-table"><thead><tr><th>Nota</th><th>Movimento / competência A e B</th><th>Valor A</th><th>Valor B</th><th>Diferença (B − A)</th><th>Situação A / B</th><th>Resultado</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${noteDescription(r.left||r.right)}</td><td>${movement((r.left||r.right).direction)}<br>${esc(r.left?.period||'—')} / ${esc(r.right?.period||'—')}</td><td>${money(r.left?.amount)}</td><td>${money(r.right?.amount)}</td><td>${money(r.difference)}</td><td>${noteState(r.left)} / ${noteState(r.right)}</td><td>${esc(r.issues.join(' · ')||'Confere')}${r.left?.ownEntryEmission||r.right?.ownEntryEmission?'<br><b>ENTRADA · EMISSÃO PRÓPRIA</b>':''}${r.fallback?'<br><small>Correspondência sem chave</small>':''}${r.left&&!r.left.excluded&&r.right?.cancelled?`<br><b>${compareWarning}</b>`:''}</td></tr>`).join('')}</tbody></table></div>`;
