@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 const root=new URL('../',import.meta.url);
-const html=fs.readFileSync(new URL('index.html',root),'utf8');
+const html=fs.readFileSync(new URL('portal.js',root),'utf8');
 // Execute the actual production functions, without duplicating the parser.
 const names=['normalizeText','parseBookAmount','textLinesFromItems','parseP9Page','readFiscalBookPdf','compareXmlToP9'];
 const ctx=vm.createContext({Uint8Array,xmlBookStatus:{},xmlBookDirection:{value:'auto'},xmlReport:[]});
