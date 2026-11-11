@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import {prepareSaamXml} from '../saam-xml.mjs';
+import {parseServices,contributionValues} from '../saam.mjs';
+const p=(id,name)=>({id,name,address:{street:'Rua de teste',municipality:'5208707'}});
+const base={kind:'NFS-e',key:'teste-1',number:'1',date:'10/09/2026',amount:123.45,emit:p('12345678000100','Fornecedor'),toma:p('98765432000100','Declarante'),description:'Serviço',cancelled:false};
+let r=prepareSaamXml([base,{...base}]);
+assert.equal(r.notes.length,1);assert.equal(r.duplicates,1);assert.equal(r.cents,12345);assert.equal(r.ownId,base.toma.id);assert.equal(r.notes[0].id,base.emit.id);assert.equal(r.notes[0].operation,'0');assert.equal(r.notes[0].address.street,'Rua de teste');
+r=prepareSaamXml([base],{direction:'prestados'});assert.equal(r.ownId,base.emit.id);assert.equal(r.notes[0].id,base.toma.id);assert.equal(r.notes[0].operation,'1');
+const other={...base,key:'other',toma:p('11111111000100','Outra empresa')};
+assert.throws(()=>prepareSaamXml([base,other]),/Informe o CNPJ/);
+r=prepareSaamXml([base,other],{company:base.toma.id});assert.equal(r.outside,1);assert.equal(r.notes.length,1);
+for(const notes of [[base,{...base,cancelled:true}],[{...base,cancelled:true},base]])assert.throws(()=>prepareSaamXml(notes),/Nenhuma nota válida/);
+assert.throws(()=>prepareSaamXml([base],{cancellations:['teste-1']}),/Nenhuma nota válida/);
+assert.throws(()=>prepareSaamXml([base,{...base,amount:124}]),/conflitantes/);
+assert.throws(()=>prepareSaamXml([{...base,date:''}]),/sem data/);
+assert.throws(()=>prepareSaamXml([{...base,amount:null}]),/sem data/);
+assert.throws(()=>prepareSaamXml([{...base,emit:p('','')}]),/sem data/);
+assert.equal(contributionValues(100,1.65,7.6)[0],1.65);
+// Existing PDF reader remains usable, independent of the XML module.
+const pdf=parseServices(['Serviços Contratados','CNPJ: 98.765.432/0001-00','Dt. Competência','10/09/2026 NFS-e 1 12.345.678/0001-00 Fornecedor R$ 123,45','Total Registros: 1','Total Geral: R$ 123,45']);
+assert.equal(pdf.notes.length,1);assert.equal(pdf.cents,12345);
+console.log('PASS: XML preparation, company/direction, CPF/CNPJ, addresses, duplicate cancellation, invalid/conflicting values; PDF and contribution calculations preserved.');

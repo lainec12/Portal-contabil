@@ -1,3 +1,4 @@
+import {parseSaamXml,prepareSaamXml} from './saam-xml.mjs';
 const f100Headers = [
   'Mês de Referência','Empresa Declarante','Ind. Operação','Código do Participante','Cód. Produto',
   'Data da Operação','Valor Operação','CST PIS','Valo BC PIS','Alíq. PIS','Valor Pis',
@@ -181,6 +182,13 @@ function setup(root) {
       if (/cnpj.*cpf|cpf.*cnpj/.test(label)) return 'id';
       if (/cnpj/.test(label)) return 'cnpj';
       if (/cpf/.test(label)) return 'cpf';
+      if (/cod.*pais/.test(label)) return 'country';
+      if (/cod.*munic/.test(label)) return 'municipality';
+      if (/^ie$|inscricao.*estadual/.test(label)) return 'ie';
+      if (/complemento/.test(label)) return 'complement';
+      if (/bairro/.test(label)) return 'district';
+      if (/numero.*imovel|^numero$/.test(label)) return 'number';
+      if (/endereco|logradouro/.test(label)) return 'street';
       return '';
     });
   }
@@ -195,8 +203,8 @@ function setup(root) {
     for (const p of participants) {
       const source=sourceById.get(p.basic[2]);
       p.row ??= fields.map((field,i) => ({
-        company:companyCnpj, month:p.month||'', code:p.basic[0], name:source?.[nameIndex]||p.basic[1], id:p.basic[2],
-        cnpj:p.basic[2].length===14?p.basic[2]:'', cpf:p.basic[2].length===11?p.basic[2]:''
+        company:companyCnpj, month:p.month||'', code:p.basic[0], name:(p.address?p.basic[1]:'')||source?.[nameIndex]||p.basic[1], id:p.basic[2],
+        cnpj:p.basic[2].length===14?p.basic[2]:'', cpf:p.basic[2].length===11?p.basic[2]:'',...p.address
       })[field] ?? (source?.[i]||template.defaults.get(i)||''));
     }
     render(grids.p150,template.headers,participants.map(p => p.row));
@@ -245,27 +253,45 @@ function setup(root) {
       }
       parsed = parseServices(lines);
     } finally { await pdf.destroy(); }
-    const {notes,ownId,cents} = parsed;
+    applyParsed(parsed,'PDF');
+  });
+
+  function applyParsed({notes,ownId,cents,duplicates=0,cancelled=0,outside=0},source){
     companyCnpj = ownId;
+    get('saam-xml-company').value=ownId;
     get('saam-company').textContent = 'Empresa declarante (CNPJ): '+companyCnpj;
-    const byId = new Map(notes.map(note => [note.date.slice(3)+'|'+note.id,{basic:[note.id,note.name,note.id],month:note.date.slice(3)}]));
+    get('saam-confirm').checked=false;
+    const byId = new Map(notes.map(note => [note.date.slice(3)+'|'+note.id,{basic:[note.id,note.name,note.id],month:note.date.slice(3),address:note.address}]));
     participants = [...byId.values()];
     records = notes.map(note => {
-      const row = [
-        note.date.slice(3),ownId,'0',note.id,'',note.date,note.amount,
-        '',note.amount,'','','',note.amount,'','','','','','',
-        'NFS-e '+note.number+(note.name?' - '+note.name:'')
-      ];
+      const row = [note.date.slice(3),ownId,note.operation||'0',note.id,'',note.date,note.amount,'',note.amount,'','','',note.amount,'','','','','','',note.description||'NFS-e '+note.number+(note.name?' - '+note.name:'')];
       for (const [column,value] of f100Defaults) row[column] = value;
-      recalculate(row);
-      return row;
+      recalculate(row);return row;
     });
-    selected = records.map(() => true);
-    render(grids.f100,f100Columns,records,selected);
-    renderParticipants();
-    status.textContent = notes.length+' notas · '+participants.length+' participantes · '+
-      (cents/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+
-      '. Confira as datas, os códigos e a classificação fiscal antes de exportar.';
+    selected=records.map(()=>true);
+    render(grids.f100,f100Columns,records,selected);renderParticipants();
+    status.textContent=source+': '+notes.length+' notas · '+participants.length+' participantes · '+(cents/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'. '+duplicates+' duplicada(s), '+cancelled+' cancelada(s) e '+outside+' de outra empresa/movimento desconsideradas. Confira datas, códigos e classificação fiscal antes de exportar.';
+  }
+
+  get('saam-import-xml').onclick=()=>action(async()=>{
+    const files=[...get('saam-xml').files];if(!files.length)throw new Error('Selecione os arquivos XML ou ZIP.');
+    const button=get('saam-import-xml');button.disabled=true;const notes=[],cancellations=[],errors=[];let read=0;
+    get('saam-xml-errors').textContent='';
+    const consume=(text,name)=>{try{const parsed=parseSaamXml(text);notes.push(...parsed.notes);cancellations.push(...parsed.cancellations);if(!parsed.notes.length&&!parsed.cancellations.length)errors.push(name+': XML sem NF-e/NFS-e ou cancelamento reconhecido.')}catch(e){errors.push(name+': '+e.message)}};
+    try{
+      for(const file of files){
+        if(/\.zip$/i.test(file.name)){
+          const unzip=globalThis.portalSheetBridge?.readXmlZip;if(!unzip)throw new Error('O leitor ZIP não carregou. Atualize a página e tente novamente.');
+          try{for await(const item of unzip(file)){if(item.error)errors.push(item.name+': '+item.error);else consume(item.text,item.name);read++;if(read%20===0){status.textContent='Lendo XMLs: '+read+' arquivos…';await new Promise(r=>setTimeout(r,0))}}}catch(e){errors.push(file.name+': '+e.message)}
+        }else if(/\.xml$/i.test(file.name)){
+          if(file.size>20*1024*1024){errors.push(file.name+': XML excede 20 MiB.');continue}
+          consume(await file.text(),file.name);read++;
+        }else errors.push(file.name+': formato não aceito.');
+      }
+      const parsed=prepareSaamXml(notes,{company:get('saam-xml-company').value,direction:get('saam-xml-direction').value,cancellations});
+      applyParsed(parsed,'XML/ZIP');
+      if(errors.length)status.textContent+=' '+errors.length+' arquivo(s) não aproveitado(s); veja os avisos abaixo.';
+    }finally{button.disabled=false;get('saam-xml-errors').textContent=errors.join('\n')}
   });
 
   const bulkField = get('saam-bulk-field');
@@ -372,9 +398,9 @@ function setup(root) {
     await download(f100Columns,outputRows,f100Name,'registro_piscofins_f100.xls');
   });
   bindDownload('saam-download-0150', async () => {
-    if (!participants.length) throw new Error('Importe o PDF ou adicione um participante.');
+    if (!participants.length) throw new Error('Importe o PDF, XML/ZIP ou adicione um participante.');
     const fields = fields0150();
-    if (fields.includes('company')&&!/^\d{14}$/.test(companyCnpj)) throw new Error('Importe o REST para identificar a empresa declarante.');
+    if (fields.includes('company')&&!/^\d{14}$/.test(companyCnpj)) throw new Error('Importe o REST ou XMLs para identificar a empresa declarante.');
     const nameIndex = fields.indexOf('name');
     const incomplete = participants.flatMap((p,index) =>
       !String(p.row[nameIndex] || '').trim() ? [index+1] : []);

@@ -207,13 +207,22 @@
     <section class="section alt" id="especialista"><div class="wrap"><div class="section-head"><div><span class="kicker">Quem explica</span><h2>Sobre o especialista</h2></div></div><article class="card expert"><div class="photo-placeholder" aria-label="Espaço reservado para foto">▧</div><div><h3 style="font-size:1.4rem">[Nome do contador ou contadora]</h3><p><b>CRC:</b> [UF-000000/O-0]</p><p>Contador(a) com [X] anos de experiência em contabilidade consultiva, fiscal e gestão de empresas. Aqui você encontrará explicações práticas, exemplos e alertas de rotina. Substitua este texto pelos dados reais do profissional responsável antes de publicar.</p><span class="pill">Conteúdo editorial demonstrativo</span></div></article></div></section>
     <section class="section" id="glossario"><div class="wrap"><div class="section-head"><div><span class="kicker">Consulta rápida</span><h2>Glossário contábil de A a Z</h2><p>Referência final dos impostos, contribuições, siglas e expressões usados nos guias e cálculos acima. Busque por nome, abreviação ou significado.</p></div><label class="sr-only" for="glossaryInput">Pesquisar termo do glossário</label><input class="glossary-search" id="glossaryInput" type="search" placeholder="Buscar termo, sigla ou conceito"></div><div class="glossary-list" id="glossaryList"></div></div></section>
     <section class="section alt" id="saam-f100"><div class="wrap">
-      <div class="section-head"><div><span class="kicker">EFD-Contribuições · SAAM</span><h2>Preenchimento F100 e participantes</h2><p>Importe o REST de Serviços Contratados de Goiânia, revise os dados e baixe as planilhas em XLS. Os arquivos são lidos no seu navegador.</p></div></div>
+      <div class="section-head"><div><span class="kicker">EFD-Contribuições · SAAM</span><h2>Preenchimento F100 e participantes</h2><p>Importe o REST de Serviços Contratados de Goiânia em PDF ou XMLs de NF-e/NFS-e (avulsos ou em ZIP), revise os dados e baixe F100 e 0150 em XLS. Os arquivos são lidos no seu navegador.</p></div></div>
       <div class="card">
         <p><label for="saam-pdf"><strong>REST de Serviços Contratados (PDF)</strong></label><br><input id="saam-pdf" type="file" accept=".pdf,application/pdf"></p>
+        <details open><summary><strong>Importar XMLs ou ZIPs para F100 e 0150</strong></summary>
+          <p><label for="saam-xml">XMLs de NF-e/NFS-e ou ZIPs</label><br><input id="saam-xml" type="file" accept=".xml,.zip,application/xml,text/xml,application/zip" multiple></p>
+          <p><label for="saam-xml-direction">Movimento da empresa</label> <select id="saam-xml-direction" class="field"><option value="tomados">Serviços tomados / entradas</option><option value="prestados">Serviços prestados / saídas</option></select></p>
+          <p><label for="saam-xml-company">CNPJ da empresa declarante</label> <input id="saam-xml-company" class="field" inputmode="numeric" placeholder="Identificado automaticamente quando único" maxlength="18"></p>
+          <p>O XML preenche participante, CPF/CNPJ, nome, endereço disponível, data de competência (ou emissão), valor bruto da operação e descrição. A escolha tomados/entradas ou prestados/saídas identifica a contraparte. O 0150 é o cadastro de participantes.</p>
+          <p class="fine">CSTs e alíquotas do F100 seguem seu modelo; os tributos do fornecedor não determinam seu direito a crédito. Revise o enquadramento antes de exportar, inclusive NF-e que possa pertencer a outro registro. Notas canceladas identificadas e duplicidades são desconsideradas. A importação substitui a grade atual; os arquivos ficam somente no navegador.</p>
+          <button class="primary" id="saam-import-xml" type="button">Preencher F100 e 0150 pelos XMLs</button>
+          <pre id="saam-xml-errors" style="white-space:pre-wrap;max-height:160px;overflow:auto" role="status"></pre>
+        </details>
         <p id="saam-company"></p><p id="saam-status" role="status" aria-live="polite"></p>
         <div role="group" aria-label="Planilhas do SAAM"><button class="field" type="button" data-saam-panel="saam-f100-panel" aria-pressed="true">Lançamentos F100</button> <button class="field" type="button" data-saam-panel="saam-0150-panel" aria-pressed="false">Clientes e fornecedores (0150)</button></div>
         <div id="saam-f100-panel">
-          <p>Modelo F100 padrão pronto para usar. Anexe o livro REST e revise os campos antes de exportar.</p>
+          <p>Modelo F100 padrão pronto para usar. Anexe o livro REST ou importe XMLs e revise os campos antes de exportar.</p>
           <details><summary>Usar outro modelo F100 nesta sessão</summary>
             <p><label for="saam-template-f100">Modelo F100 do SAAM</label><br><input type="file" id="saam-template-f100" accept=".xls,.xlsx"></p>
           </details>
@@ -227,7 +236,7 @@
           <details><summary>Usar outro modelo 0150</summary>
             <p><label for="saam-template-0150">Modelo 0150 exportado do SAAM</label><br><input type="file" id="saam-template-0150" accept=".xls,.xlsx"></p>
           </details>
-          <p>Cada participante do PDF aparece uma vez por CPF ou CNPJ. Os nomes abreviados do PDF podem ser exportados. Complete somente os nomes em branco.</p>
+          <p>Cada participante do PDF ou XML aparece uma vez por competência e CPF/CNPJ. Os dados de endereço disponíveis no XML são preenchidos no cadastro. Os nomes abreviados do PDF podem ser exportados. Complete somente os nomes em branco.</p>
           <div class="saam-grid" id="saam-0150-grid" tabindex="0" aria-label="Cadastro de participantes"></div>
           <p><button type="button" class="field" id="saam-add-0150">Adicionar participante</button> <button type="button" class="primary" id="saam-download-0150">Baixar 0150 (.xls)</button></p>
           <p id="saam-download-0150-status" role="status"></p>
