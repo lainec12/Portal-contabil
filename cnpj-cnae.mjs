@@ -47,7 +47,7 @@ export function company(data) {
 export async function lookup(id, signal, fetcher = fetch) {
   const timeout = AbortSignal.timeout(20000);
   const response = await fetcher('https://brasilapi.com.br/api/cnpj/v1/'+encodeURIComponent(id),
-    {signal:signal?AbortSignal.any([signal,timeout]):timeout,credentials:'omit',referrerPolicy:'no-referrer',cache:'no-store'});
+    {signal:signal?AbortSignal.any([signal,timeout]):timeout,credentials:'omit',referrerPolicy:'no-referrer'});
   if (!response.ok) {
     const message = response.status===429?'Limite da fonte atingido. Aguarde antes de tentar novamente.':response.status===404?'CNPJ não localizado na fonte.':response.status>=500?'Fonte temporariamente indisponível.':'Consulta recusada pela fonte (HTTP '+response.status+').';
     const error = new Error(message); error.status = response.status; throw error;
