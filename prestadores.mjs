@@ -28,7 +28,7 @@ export function mostrarPrestadores(panel,notes,automatic,fillMissing){
     const line=document.createElement('p');
     line.append(provider.name+' · '+provider.id+' ');
     panel.append(line);
-    if(provider.id.length===11){line.append('Pessoa física · município conforme XML.');continue}
+    if(provider.id.length===11){line.append([...codes].some(Boolean)?'Pessoa física · município informado no arquivo.':'Pessoa física · confira o município no 0150.');continue}
     const button=document.createElement('button'), result=document.createElement('span');
     button.type='button';button.textContent='Conferir município pelo CNPJ';result.setAttribute('role','status');
     line.append(button,' ',result);

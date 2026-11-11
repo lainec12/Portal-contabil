@@ -1,4 +1,4 @@
-import {mostrarPrestadores} from './prestadores.mjs';
+import {mostrarPrestadores} from './prestadores.mjs?v=pdf1';
 import {loadMunicipalities,resolveMunicipality} from './municipios.mjs?v=20261111-ibge';
 import {parseSaamXml,prepareSaamXml} from './saam-xml.mjs?v=20261111-cnpj';
 const f100Headers = [
@@ -8,7 +8,9 @@ const f100Headers = [
   'Cód. Conta Analitica','Cód. Centro Custos','Descrição Operação'
 ];
 
-const documentId = /\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}|\d{3}\.\d{3}\.\d{3}-\d{2}/;
+const cnpjPattern = /[0-9A-Z]{2}\.[0-9A-Z]{3}\.[0-9A-Z]{3}\/[0-9A-Z]{4}-\d{2}|[0-9A-Z]{12}\d{2}/i;
+const documentId = new RegExp(cnpjPattern.source + '|\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}|\\d{11}', 'i');
+const cleanDocument = value => value.toUpperCase().replace(/[./-]/g,'');
 const digits = value => String(value ?? '').replace(/\D/g, '');
 const normalize = value => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const standardColumns = [4,7,9,11,13,15,16,17,18];
@@ -30,8 +32,8 @@ function companyFromBook(lines) {
     const label = line.match(/\bCNPJ\b(?!\s*(?:do\s+)?(?:prestador|tomador))/i);
     if (!label) continue;
     const nearby = [line.slice(label.index+label[0].length),...header.slice(index+1,index+4)].join(' ');
-    const id = nearby.match(/\b(?:\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}|\d{14})\b/)?.[0];
-    if (id) candidates.add(digits(id));
+    const id = nearby.match(new RegExp('\\b(?:'+cnpjPattern.source+')\\b','i'))?.[0];
+    if (id) candidates.add(cleanDocument(id));
   }
   if (candidates.size!==1) throw new Error('Não consegui identificar um único CNPJ da empresa declarante no cabeçalho do Livro.');
   return [...candidates][0];
@@ -42,9 +44,10 @@ export function parseServices(lines) {
   if (!/servi[cç]os contratados/i.test(text)) throw new Error('Selecione o Livro de ISSQN de Serviços Contratados.');
   const ownId = companyFromBook(lines);
   const pattern = new RegExp('^(\\d{2}/\\d{2}/\\d{4})\\s+(?:NFS-e|Nota Fiscal de S).*?\\s+(\\d+)\\s+(' + documentId.source + ')\\s+(.+?)\\s+R\\$\\s*([\\d.,]+)', 'i');
-  const notes = lines.map(line => line.trim().match(pattern)).filter(Boolean).map(([, date, number, id, name, value]) => ({
-    date, number, id:digits(id), name, amount:Number(value.replace(/\./g,'').replace(',','.'))
-  }));
+  const notes = lines.map(line => line.trim().match(pattern)).filter(Boolean).map(([, date, number, document, name, value]) => {
+    const id=cleanDocument(document);
+    return {date,number,id,name,operation:'0',provider:{id,name},amount:Number(value.replace(/\./g,'').replace(',','.'))};
+  });
   const expected = text.match(/Total Registros\s*:\s*(\d+)/i)?.[1];
   const expectedTotal = text.match(/Total Geral\s*:\s*R\$\s*([\d.,]+)/i)?.[1];
   const cents = notes.reduce((sum, note) => sum + Math.round(note.amount * 100), 0);
@@ -207,8 +210,8 @@ function setup(root) {
       const source=sourceById.get(p.basic[2]);
       p.row ??= fields.map((field,i) => ({
         company:companyCnpj, month:p.month||'', code:p.basic[0], name:(p.address?p.basic[1]:'')||source?.[nameIndex]||p.basic[1], id:p.basic[2],
-        cnpj:p.basic[2].length===14?p.basic[2]:'', cpf:p.basic[2].length===11?p.basic[2]:'',...p.address
-      })[field] ?? (source?.[i]||template.defaults.get(i)||''));
+        cnpj:p.basic[2].length===14?p.basic[2]:'', cpf:p.basic[2].length===11?p.basic[2]:'',...p.address, municipality:p.verifiedMunicipality||p.address?.municipality
+      })[field] ?? (source?.[i]||(field==='municipality'?'':template.defaults.get(i))||''));
     }
     render(grids.p150,template.headers,participants.map(p => p.row));
   }
@@ -243,6 +246,8 @@ function setup(root) {
     get('saam-company').textContent = '';
     get("saam-confirm").checked = false;
     grids.f100.replaceChildren(); grids.p150.replaceChildren();
+    get('saam-prestadores').replaceChildren();
+    get('saam-xml-errors').textContent='';
     status.textContent = 'Lendo o PDF no navegador…';
     const lib = await import('./vendor/pdf.min.mjs');
     lib.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdf.worker.min.mjs',import.meta.url).href;
@@ -280,7 +285,7 @@ function setup(root) {
       for(const [i,p] of participants.entries()){
         if(p.basic[2]!==id || !p.row || String(p.row[doc]).replace(/[.\/-]/g,'')!==id || p.row[column])continue;
         p.row[column]=code;
-        p.address.municipality=code;
+        p.verifiedMunicipality=code;
         const cell=grids.p150.querySelector('tbody')?.rows[i]?.cells[column]?.firstElementChild;
         if(cell)cell.value=code;
       }

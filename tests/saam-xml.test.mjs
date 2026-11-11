@@ -20,3 +20,10 @@ assert.equal(contributionValues(100,1.65,7.6)[0],1.65);
 const pdf=parseServices(['Serviços Contratados','CNPJ: 98.765.432/0001-00','Dt. Competência','10/09/2026 NFS-e 1 12.345.678/0001-00 Fornecedor R$ 123,45','Total Registros: 1','Total Geral: R$ 123,45']);
 assert.equal(pdf.notes.length,1);assert.equal(pdf.cents,12345);
 console.log('PASS: XML preparation, company/direction, CPF/CNPJ, addresses, duplicate cancellation, invalid/conflicting values; PDF and contribution calculations preserved.');
+assert.deepEqual(pdf.notes[0].provider,{id:'12345678000100',name:'Fornecedor'});
+assert.equal(pdf.notes[0].operation,'0');
+for(const [printed,id] of [['AB.123.C45/0001-00','AB123C45000100'],['01234567890','01234567890']]){
+  const result=parseServices(['Serviços Contratados','CNPJ: AB.123.C45/0002-01','Dt. Competência','10/09/2026 NFS-e 1 '+printed+' Teste R$ 1,00']);
+  assert.equal(result.notes[0].provider.id,id);
+  assert.equal(result.ownId,'AB123C45000201');
+}
