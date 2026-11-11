@@ -211,7 +211,7 @@
       <div class="card">
           <p><label><input id="saam-auto-cnpj" type="checkbox" checked> Conferir automaticamente o município dos prestadores pela BrasilAPI ao importar PDF, XML ou ZIP. Somente os CNPJs são enviados.</label></p>
         <p><label for="saam-pdf"><strong>REST de Serviços Contratados (PDF)</strong></label><br><input id="saam-pdf" type="file" accept=".pdf,application/pdf"></p>
-        <details open><summary><strong>Importar XMLs ou ZIPs para F100 e 0150</strong></summary>
+        <details id="saam-xml-options"><summary><strong>Importar XMLs ou ZIPs para F100 e 0150</strong></summary>
           <p><label for="saam-xml">XMLs de NF-e/NFS-e ou ZIPs</label><br><input id="saam-xml" type="file" accept=".xml,.zip,application/xml,text/xml,application/zip" multiple></p>
           <p><label for="saam-xml-direction">Movimento da empresa</label> <select id="saam-xml-direction" class="field"><option value="tomados">Serviços tomados / entradas</option><option value="prestados">Serviços prestados / saídas</option></select></p>
           <p><label for="saam-xml-company">CNPJ da empresa declarante</label> <input id="saam-xml-company" class="field" placeholder="Identificado automaticamente quando único" maxlength="18"></p>
@@ -221,7 +221,7 @@
           <p class="fine">Município no XLS: código IBGE de 7 dígitos validado na tabela oficial; quando só há nome, a busca usa cidade + UF. Sem correspondência, o campo fica em branco para revisão. <a href="https://www.ibge.gov.br/explica/codigos-dos-municipios.php" target="_blank" rel="noopener noreferrer">Consultar códigos dos municípios no IBGE ↗</a>. Tabela conferida em 11/11/2026.</p>
           <pre id="saam-xml-errors" style="white-space:pre-wrap;max-height:160px;overflow:auto" role="status"></pre>
         </details>
-          <div id="saam-prestadores"></div>
+          <details id="saam-provider-details"><summary><strong>Conferência dos municípios dos prestadores</strong></summary><div id="saam-prestadores"></div></details>
         <p id="saam-company"></p><p id="saam-status" role="status" aria-live="polite"></p>
         <div role="group" aria-label="Planilhas do SAAM"><button class="field" type="button" data-saam-panel="saam-f100-panel" aria-pressed="true">Lançamentos F100</button> <button class="field" type="button" data-saam-panel="saam-0150-panel" aria-pressed="false">Clientes e fornecedores (0150)</button></div>
         <div id="saam-f100-panel">
