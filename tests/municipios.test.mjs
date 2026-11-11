@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {resolveMunicipality} from '../municipios.mjs';
+import {prepareSaamXml} from '../saam-xml.mjs';
+const catalog=JSON.parse(fs.readFileSync(new URL('../vendor/ibge-municipios.json',import.meta.url),'utf8'));
+assert.equal(catalog.municipalities.length,5571);
+assert.equal(resolveMunicipality({municipality:'5208707'},catalog).name,'Goiânia');
+assert.equal(resolveMunicipality({city:'GOIANIA',uf:'go'},catalog).code,'5208707');
+assert.equal(resolveMunicipality({city:'São Paulo',uf:'SP'},catalog).code,'3550308');
+assert.equal(resolveMunicipality({municipality:'0000000',city:'Goiânia',uf:'GO'},catalog).code,'5208707');
+assert.equal(resolveMunicipality({municipality:'5208707',uf:'SP'},catalog).code,'');
+assert.equal(resolveMunicipality({city:'Bom Jesus'},catalog).code,'');
+assert.equal(resolveMunicipality({},catalog).code,'');
+assert.equal(resolveMunicipality({municipality:'520870'},catalog).code,'');
+const note={kind:'NFS-e',key:'city-test',number:'1',date:'11/11/2026',amount:10,emit:{id:'11111111000100',name:'Prestador',address:{municipality:'3550308'}},toma:{id:'22222222000100',name:'Tomador',address:{municipality:'5208707'}}};
+assert.equal(prepareSaamXml([note]).notes[0].address.municipality,'3550308');
+assert.equal(prepareSaamXml([note],{direction:'prestados'}).notes[0].address.municipality,'5208707');
+console.log('PASS: official IBGE catalog, seven-digit code, accented city+UF lookup, unknown/conflicting cities blank; participant municipality follows provider/customer correctly.');

@@ -9,11 +9,12 @@ const value=(n,...names)=>child(n,...names)?.textContent?.trim()||'';
 const deep=(n,...names)=>first(n,...names)?.textContent?.trim()||'';
 const xmlNumber=v=>{if(v==='')return null;const n=Number(String(v).includes(',')?String(v).replace(/\./g,'').replace(',','.'):v);return Number.isFinite(n)&&n>=0?n:null};
 function date(v){const s=String(v||'').slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(s))return '';const d=new Date(s+'T12:00:00Z');return Number.isNaN(+d)||d.toISOString().slice(0,10)!==s?'':s.slice(8,10)+'/'+s.slice(5,7)+'/'+s.slice(0,4)}
+const documentId=v=>String(v??'').trim().toUpperCase().replace(/[.\/-]/g,'');
 function party(node,fallback){
   const get=(...names)=>deep(node,...names)||deep(fallback,...names);
   const address=child(node,'enderNac','endereco','end','enderEmit','enderDest')||child(fallback,'enderNac','endereco','end','enderEmit','enderDest');
   const a=(...names)=>deep(address,...names);
-  return {id:digits(get('CNPJ','CPF')),name:value(node,'xNome','RazaoSocial','Nome')||value(fallback,'xNome','RazaoSocial','Nome'),address:{ie:get('IE','InscricaoEstadual'),country:a('cPais','CodigoPais')||'1058',street:a('xLgr','Endereco','Logradouro'),number:a('nro','Numero'),complement:a('xCpl','Complemento'),district:a('xBairro','Bairro'),municipality:a('cMun','CodigoMunicipio')}};
+  return {id:documentId(get('CNPJ','CPF')),name:value(node,'xNome','RazaoSocial','Nome')||value(fallback,'xNome','RazaoSocial','Nome'),address:{ie:get('IE','InscricaoEstadual'),country:a('cPais','CodigoPais')||'1058',street:a('xLgr','Endereco','Logradouro'),number:a('nro','Numero'),complement:a('xCpl','Complemento'),district:a('xBairro','Bairro'),municipality:a('cMun','CodigoMunicipio'),city:a('xMun','Municipio','NomeMunicipio','Cidade'),uf:a('UF','Uf')}};
 }
 export function parseSaamXml(text,Parser=globalThis.DOMParser){
   if(/<!DOCTYPE|<!ENTITY/i.test(text))throw new Error('XML com definição de entidade não é aceito.');
@@ -43,9 +44,9 @@ export function parseSaamXml(text,Parser=globalThis.DOMParser){
 }
 export function prepareSaamXml(notes,{company='',direction='tomados',cancellations=[]}={}){
   const ownSide=direction==='prestados'?'emit':'toma',otherSide=direction==='prestados'?'toma':'emit';
-  const ids=new Set(notes.map(n=>n[ownSide]?.id).filter(id=>/^\d{14}$/.test(id)));
-  const ownId=digits(company)||(ids.size===1?[...ids][0]:'');
-  if(!/^\d{14}$/.test(ownId))throw new Error('Informe o CNPJ da empresa declarante. Há mais de uma empresa ou o CNPJ não está identificado nos XMLs.');
+  const ids=new Set(notes.map(n=>n[ownSide]?.id).filter(id=>/^[A-Z0-9]{12}\d{2}$/.test(id)));
+  const ownId=documentId(company)||(ids.size===1?[...ids][0]:'');
+  if(!/^[A-Z0-9]{12}\d{2}$/.test(ownId))throw new Error('Informe o CNPJ da empresa declarante. Há mais de uma empresa ou o CNPJ não está identificado nos XMLs.');
   const cancelledKeys=new Set(cancellations),byId=new Map();let outside=0,duplicates=0,cancelled=0;
   for(const n of notes){
     if(n[ownSide]?.id!==ownId){outside++;continue}
@@ -58,8 +59,8 @@ export function prepareSaamXml(notes,{company='',direction='tomados',cancellatio
   for(const n of byId.values()){
     if(n.cancelled){cancelled++;continue}
     const participant=n[otherSide];
-    if(!n.date||n.amount===null||!Number.isFinite(n.amount)||!n.number||!/^\d{11}(?:\d{3})?$/.test(participant?.id||''))throw new Error('Há nota sem data, número, valor ou CPF/CNPJ do participante. Confira os XMLs antes de importar.');
-    result.push({date:n.date,number:n.number,id:participant.id,name:participant.name,amount:n.amount,address:participant.address,description:n.kind+' '+n.number+(n.description?' - '+n.description:''),operation:direction==='prestados'?'1':'0'});
+    if(!n.date||n.amount===null||!Number.isFinite(n.amount)||!n.number||!/^(?:\d{11}|[A-Z0-9]{12}\d{2})$/.test(participant?.id||''))throw new Error('Há nota sem data, número, valor ou CPF/CNPJ do participante. Confira os XMLs antes de importar.');
+    result.push({provider:n.emit,date:n.date,number:n.number,id:participant.id,name:participant.name,amount:n.amount,address:participant.address,description:n.kind+' '+n.number+(n.description?' - '+n.description:''),operation:direction==='prestados'?'1':'0'});
   }
   if(!result.length)throw new Error('Nenhuma nota válida para a empresa e o movimento escolhidos. Verifique o CNPJ, as canceladas e a opção tomados/prestados.');
   return {notes:result,ownId,cents:result.reduce((a,n)=>a+Math.round(n.amount*100),0),duplicates,cancelled,outside};

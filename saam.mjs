@@ -1,4 +1,6 @@
-import {parseSaamXml,prepareSaamXml} from './saam-xml.mjs';
+import {mostrarPrestadores} from './prestadores.mjs';
+import {loadMunicipalities,resolveMunicipality} from './municipios.mjs?v=20261111-ibge';
+import {parseSaamXml,prepareSaamXml} from './saam-xml.mjs?v=20261111-cnpj';
 const f100Headers = [
   'Mês de Referência','Empresa Declarante','Ind. Operação','Código do Participante','Cód. Produto',
   'Data da Operação','Valor Operação','CST PIS','Valo BC PIS','Alíq. PIS','Valor Pis',
@@ -88,7 +90,7 @@ function setup(root) {
   let selected = [];
   let participants = [];
   let template = {
-    name:'Sheet0',headers:standard0150Headers,defaults:new Map([[4,1058],[13,'5208707']]),rows:[]
+    name:'Sheet0',headers:standard0150Headers,defaults:new Map([[4,1058]]),rows:[]
   };
   // Shared fields from the reference model, without its transactions.
   let f100Defaults = new Map([
@@ -166,6 +168,7 @@ function setup(root) {
           recalculate(row);
           for (const index of [8,10,12,14]) tr.cells[index+1].firstElementChild.value = row[index];
         };
+        input.oninput = input.onchange;
         tr.insertCell().append(input);
       });
     });
@@ -197,7 +200,7 @@ function setup(root) {
     const fields = fields0150();
     const nameIndex=fields.indexOf('name');
     const sourceById=new Map(template.rows.map(row=>{
-      const id=fields.map((field,i)=>['id','cnpj','cpf'].includes(field)?digits(row[i]):'').find(Boolean);
+      const id=fields.map((field,i)=>['id','cnpj','cpf'].includes(field)?String(row[i]??'').trim().toUpperCase().replace(/[.\/-]/g,''):'').find(Boolean);
       return [id,row];
     }).filter(([id])=>id));
     for (const p of participants) {
@@ -269,6 +272,19 @@ function setup(root) {
       recalculate(row);return row;
     });
     selected=records.map(()=>true);
+    const providerParticipants=new Set(notes.filter(n=>n.operation==='0' && n.id===n.provider?.id).map(n=>n.id));
+    mostrarPrestadores(get('saam-prestadores'),notes,get('saam-auto-cnpj').checked,(id,code)=>{
+      if(!providerParticipants.has(id))return;
+      const fields=fields0150(),column=fields.indexOf('municipality'),doc=fields.findIndex(f=>f==='cnpj'||f==='id');
+      if(column<0||doc<0)return;
+      for(const [i,p] of participants.entries()){
+        if(p.basic[2]!==id || !p.row || String(p.row[doc]).replace(/[.\/-]/g,'')!==id || p.row[column])continue;
+        p.row[column]=code;
+        p.address.municipality=code;
+        const cell=grids.p150.querySelector('tbody')?.rows[i]?.cells[column]?.firstElementChild;
+        if(cell)cell.value=code;
+      }
+    });
     render(grids.f100,f100Columns,records,selected);renderParticipants();
     status.textContent=source+': '+notes.length+' notas · '+participants.length+' participantes · '+(cents/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})+'. '+duplicates+' duplicada(s), '+cancelled+' cancelada(s) e '+outside+' de outra empresa/movimento desconsideradas. Confira datas, códigos e classificação fiscal antes de exportar.';
   }
@@ -288,9 +304,16 @@ function setup(root) {
           consume(await file.text(),file.name);read++;
         }else errors.push(file.name+': formato não aceito.');
       }
+      const catalog=await loadMunicipalities();
+      for(const note of notes)for(const side of ['emit','toma']){
+        const address=note[side]?.address;if(!address)continue;
+        const match=resolveMunicipality(address,catalog);address.municipality=match.code;
+      }
       const parsed=prepareSaamXml(notes,{company:get('saam-xml-company').value,direction:get('saam-xml-direction').value,cancellations});
+      const missingCities=parsed.notes.filter(n=>!n.address?.municipality).length;
+      if(missingCities)errors.push(missingCities+' linha(s) de nota sem município IBGE confirmado. Confira o resultado da consulta cadastral ou complete o código na aba 0150.');
       applyParsed(parsed,'XML/ZIP');
-      if(errors.length)status.textContent+=' '+errors.length+' arquivo(s) não aproveitado(s); veja os avisos abaixo.';
+      if(errors.length)status.textContent+=' '+errors.length+' aviso(s) de importação; veja os detalhes abaixo.';
     }finally{button.disabled=false;get('saam-xml-errors').textContent=errors.join('\n')}
   });
 
@@ -373,7 +396,7 @@ function setup(root) {
   bindDownload('saam-download-f100', async () => {
     const rows = records.filter((row,index) => selected[index]);
     if (!rows.length) throw new Error('Selecione pelo menos uma nota.');
-    if (!get('saam-confirm').checked || !/^\d{14}$/.test(companyCnpj) || rows.some(row => [1,2,3,6,7,9,11,13].some(i => String(row[i]??'').trim()===''))) {
+    if (!get('saam-confirm').checked || !/^[A-Z0-9]{12}\d{2}$/.test(companyCnpj) || rows.some(row => [1,2,3,6,7,9,11,13].some(i => String(row[i]??'').trim()===''))) {
       throw new Error('Confira a empresa declarante, o enquadramento no F100 e os indicadores, participantes, valores, CSTs e alíquotas das linhas selecionadas.');
     }
     const outputRows = rows.map(row => row.map((value,index) => {
@@ -400,12 +423,18 @@ function setup(root) {
   bindDownload('saam-download-0150', async () => {
     if (!participants.length) throw new Error('Importe o PDF, XML/ZIP ou adicione um participante.');
     const fields = fields0150();
-    if (fields.includes('company')&&!/^\d{14}$/.test(companyCnpj)) throw new Error('Importe o REST ou XMLs para identificar a empresa declarante.');
+    if (fields.includes('company')&&!/^[A-Z0-9]{12}\d{2}$/.test(companyCnpj)) throw new Error('Importe o REST ou XMLs para identificar a empresa declarante.');
     const nameIndex = fields.indexOf('name');
     const incomplete = participants.flatMap((p,index) =>
       !String(p.row[nameIndex] || '').trim() ? [index+1] : []);
     if (incomplete.length) {
       throw new Error('Complete o nome ou a razão social nas linhas '+incomplete.join(', ')+'.');
+    }
+    const municipalityIndex=fields.indexOf('municipality');
+    if(municipalityIndex>=0){
+      const catalog=await loadMunicipalities();
+      const invalid=participants.flatMap((p,i)=>resolveMunicipality({municipality:p.row[municipalityIndex]},catalog).code?[]:[i+1]);
+      if(invalid.length)throw new Error('Informe um código IBGE válido de 7 dígitos nas linhas '+invalid.join(', ')+'. Consulte a cidade e UF no IBGE.');
     }
     await download(template.headers,participants.map(p => p.row),template.name,'registro_piscofins_0150.xls');
   });
