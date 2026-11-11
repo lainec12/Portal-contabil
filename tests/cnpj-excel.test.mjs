@@ -1,0 +1,21 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+import {exportRows,prepare} from '../cnpj-cnae.mjs';
+const context=vm.createContext({console});
+vm.runInContext(fs.readFileSync(new URL('../vendor/xlsx.full.min.js',import.meta.url),'utf8'),context);
+const lib=context.XLSX;
+const rows=exportRows([{cnpj:'00000000000191',state:'Consultado',name:'=TESTE',status:'ATIVA',wholesale:false,activities:[]}]);
+const book=lib.utils.book_new();
+lib.utils.book_append_sheet(book,lib.utils.json_to_sheet(rows),'Conferência');
+const bytes=lib.write(book,{type:'array',bookType:'xlsx'});
+const result=lib.read(bytes,{type:'array'});
+assert.equal(result.Sheets['Conferência'].A2.v,'00000000000191');
+assert.equal(result.Sheets['Conferência'].C2.t,'s');
+assert.equal(result.Sheets['Conferência'].C2.f,undefined);
+const csv=lib.read('CNPJ;Nome\n00000000000191;Banco\n06057223000171;Sendas',{type:'string',raw:true});
+const values=lib.utils.sheet_to_json(csv.Sheets[csv.SheetNames[0]],{header:1,raw:false}).slice(1).map(r=>r[0]);
+assert.equal(prepare(values).rows.length,2);
+assert.equal(prepare(values).rows[0].cnpj,'00000000000191');
+console.log('XLSX roundtrip, zeros iniciais, texto seguro e CSV OK');
+

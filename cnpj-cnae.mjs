@@ -29,7 +29,7 @@ export function classify(code) {
   const c = String(code ?? '').replace(/\D/g,'').padStart(7,'0');
   if (!/^[1-9]\d{6}$/.test(c)) return 'Não informado';
   if (c.startsWith('461') || representatives45.has(c)) return 'Representação comercial';
-  if (/^46[2-9]/.test(c) || wholesale45.has(c)) return 'Atacado';
+  if (/^46[2-9]/.test(c) || wholesale45.has(c) || c==='3513100') return 'Atacado';
   if (c.startsWith('47') || retail45.has(c)) return 'Varejo';
   return 'Outras atividades';
 }
@@ -86,7 +86,7 @@ async function mount() {
   <div class="button-row"><button id="cc-validate" class="field">Validar e remover duplicatas</button><button id="cc-run" class="primary">Consultar CNPJs</button><button id="cc-stop" class="field" disabled>Interromper</button><button id="cc-clear" class="field">Limpar</button><button id="cc-export" class="field">Exportar Excel (filtro atual)</button></div>
   <p id="cc-progress" role="status" aria-live="polite">Aguardando CNPJs.</p>
   <div class="notice"><b>Análise cadastral, sem conclusão fiscal:</b> possuir CNAE atacadista não comprova elegibilidade a incentivo fiscal em Goiás. Confira os requisitos legais e a operação efetiva.</div>
-  <p class="fine">Critério: divisão 46, excluído o grupo 46.1 (representantes); divisão 47 para varejo e subclasses específicas da divisão 45 para veículos. Atividades mistas aparecem separadas. Ausência de atacado significa apenas ausência nos CNAEs retornados. <a href="https://concla.ibge.gov.br/busca-online-cnae.html" target="_blank" rel="noopener">Tabela IBGE/CONCLA</a> · <a href="https://brasilapi.com.br/docs" target="_blank" rel="noopener">Fonte e documentação</a></p></div>
+  <p class="fine">Critério: divisão 46, excluído o grupo 46.1 (representantes); divisão 47 para varejo subclasses específicas da divisão 45 para veículos e CNAE 3513-1/00 (energia elétrica). Atividades mistas aparecem separadas. Ausência de atacado significa apenas ausência nos CNAEs retornados. <a href="https://concla.ibge.gov.br/busca-online-cnae.html" target="_blank" rel="noopener">Tabela IBGE/CONCLA</a> · <a href="https://brasilapi.com.br/docs" target="_blank" rel="noopener">Fonte e documentação</a></p></div>
   <div class="questions-toolbar"><label>Atividade <select id="cc-filter" class="field"><option value="">Todas</option><option value="Atacado">Com atacado</option><option value="Varejo">Com varejo</option><option value="Representação comercial">Com representação comercial</option><option value="none">Sem atacado (consultados)</option><option value="error">Erros / inválidos / pendentes</option></select></label><label>Situação <input id="cc-status" class="field" placeholder="Ex.: ATIVA"></label><label>Buscar <input id="cc-search" class="field" placeholder="CNPJ, razão social, cidade ou UF"></label></div>
   <div class="table-scroll" style="overflow:auto;max-height:650px"><table class="tax-table"><thead><tr><th>CNPJ</th><th>Empresa / situação</th><th>Cidade/UF</th><th>Classificação</th><th>CNAEs principal e secundários</th><th>Consulta / fonte</th></tr></thead><tbody id="cc-rows"></tbody></table></div></div>`;
   const $=id=>host.querySelector('#cc-'+id);
