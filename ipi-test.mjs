@@ -31,7 +31,7 @@ const aliases={
 };
 const fieldFor=new Map(Object.entries(aliases).flatMap(([field,values])=>values.map(v=>[v,field])));
 function location(address){const m=/^([A-Z]+)(\d+)$/.exec(address);return m?{col:m[1],row:Number(m[2])}:null;}
-export function extractSheet(sheet,{file='',name='',date1904=false}={}){
+export function extractSheet(sheet,{file='',name='',date1904=false,stockReference=false}={}){
  const cells=Object.entries(sheet).filter(([k])=>k[0]!=='!');
  let header=0,mapping={};
  const candidates=new Map();
@@ -45,7 +45,7 @@ export function extractSheet(sheet,{file='',name='',date1904=false}={}){
  const items=[],issues=[],formulaRows=[],cancelled=[];
  let excluded=0,hidden=0,unsupported=0;
  for(const row of [...rowIds].sort((a,b)=>a-b)){
-  const cfop=digits(val('cfop',row)),group=industryCfops.has(cfop)?'Indústria':wholesaleCfops.has(cfop)?'Atacadista 50%':'';
+  const cfop=digits(val('cfop',row)),group=stockReference&&/^[12]\d{3}$/.test(cfop)?'Estoque C170':industryCfops.has(cfop)?'Indústria':wholesaleCfops.has(cfop)?'Atacadista 50%':'';
   const base={file,sheet:name,row,cfop,group,ref:file+' / '+name+'!'+row};
   if(read('cfop',row)?.f||read('value',row)?.f){formulaRows.push(base);continue;}
   if(!group){unsupported++;continue;}
@@ -156,32 +156,34 @@ export function exportData(report,issues,stock,meta){
 async function mount(){
  const host=document.getElementById('teste-ipi');if(!host)return;
  host.innerHTML='<div class="wrap"><div class="section-head"><div><span class="kicker">Roteiro de conferência · leitura local</span><h2>Teste de IPI — estoque e entradas</h2><p>Busque o IPI de cada NCM na TIPI fornecida e encontre a alíquota que aparece em mais linhas de itens.</p></div></div>'+
- '<div class="card"><h3>1. Importe os relatórios</h3><label for="ipi-files">Planilhas XLSX, XLSM ou CSV (até 15 MB por arquivo)</label><input id="ipi-files" class="field" type="file" multiple accept=".xlsx,.xlsm,.csv"><p class="fine">Reconhece os cabeçalhos mesReferencia, num_doc, num_item, vl_item, vl_desc, cfop, ncm e cod_sit, mesmo quando mudam de coluna. XLSM é lido sem executar macros. Use arquivos de uma empresa por vez.</p><div id="ipi-sheets"></div>'+
+ '<div class="card"><h3>2. Importe os relatórios de entradas</h3><label for="ipi-files">Planilhas XLSX, XLSM ou CSV (até 15 MB por arquivo)</label><input id="ipi-files" class="field" type="file" multiple accept=".xlsx,.xlsm,.csv"><p class="fine">Reconhece os cabeçalhos mesReferencia, num_doc, num_item, vl_item, vl_desc, cfop, ncm e cod_sit, mesmo quando mudam de coluna. XLSM é lido sem executar macros. Use arquivos de uma empresa por vez.</p><div id="ipi-sheets"></div>'+
  '<p><label><input id="ipi-deduct" type="checkbox" checked> Deduzir vl_desc de vl_item na base do teste</label></p>'+
  '<div class="button-row"><button id="ipi-run" class="primary">Conferir IPI</button><button id="ipi-clear" class="field">Limpar dados</button><button id="ipi-export" class="field">Exportar conferência Excel</button></div><p id="ipi-status" role="status" aria-live="polite">Selecione os relatórios.</p>'+
  '<p id="ipi-source" class="fine">Carregando referência da TIPI…</p><p class="fine">Arquivos e dados são processados somente neste navegador. Planilhas e valores ficam neste navegador. Somente CNPJs são enviados à fonte, se você autorizar a consulta dos fornecedores; o módulo não salva os dados. Limpar remove os dados desta aba; os downloads ficam no seu aparelho.</p></div>'+
- '<div class="card" style="margin-top:16px"><h3>2. Confira os critérios e o cálculo</h3><p>A frequência conta uma ocorrência por linha de item, por grupo de CFOP e competência. Não usa quantidade comprada, valor financeiro ou média. Zero e NT são distintos. Empates, NCM ausente ou Ex não definido ficam pendentes.</p>'+
+ '<div class="card" style="margin-top:16px"><h3>3. Confira os critérios e o cálculo das entradas</h3><p>A frequência conta uma ocorrência por linha de item, por grupo de CFOP e competência. Não usa quantidade comprada, valor financeiro ou média. Zero e NT são distintos. Empates, NCM ausente ou Ex não definido ficam pendentes.</p>'+
  '<p class="fine">Indústria: 1.101, 2.101, 1.401, 2.401 × alíquota. Atacadista: 1.102, 2.102, 1.403, 2.403 × 50% × alíquota. A coluna de conferência por item usa a alíquota específica de cada produto para evidenciar a diferença em relação ao roteiro.</p>'+
  '<div id="ipi-ex"></div><div id="ipi-summary" class="table-scroll" style="overflow:auto"></div><details style="margin-top:16px"><summary>Distribuição das alíquotas e itens</summary><div id="ipi-distribution"></div><div id="ipi-details" style="overflow:auto;max-height:450px"></div></details></div>'+
- '<div class="card" style="margin-top:16px"><h3>3. Teste do estoque — separado das entradas</h3><p class="fine">O estoque não está identificado nos dois relatórios de entradas. Informe o valor contábil e a data do estoque. Este resultado não é somado automaticamente aos créditos mensais.</p>'+
- '<div class="grid grid-3"><div class="control"><label for="ipi-stock-value">Estoque contábil (R$)</label><input id="ipi-stock-value" inputmode="decimal" placeholder="Informe o valor"></div><div class="control"><label for="ipi-stock-date">Data do estoque</label><input id="ipi-stock-date" type="date"></div><div class="control"><label for="ipi-stock-group">Alíquota de qual grupo/competência?</label><select id="ipi-stock-group" class="field"><option value="">Selecione após conferir</option></select></div></div><div id="ipi-stock-result" class="result">Pendente: informe estoque, data e referência da alíquota.</div></div>'+
+ '<div class="card" style="margin-top:16px"><h3>1. Estoque contábil — valor e modelo C170</h3><p class="fine">Informe o valor do estoque e envie o modelo C170 usado como referência dos produtos. A alíquota será a que aparece em mais linhas de itens dessa referência, consultada por NCM na TIPI. Este teste é separado das entradas e não será somado a elas.</p>'+
+ '<div class="grid grid-3"><div class="control"><label for="ipi-stock-value">Estoque contábil (R$)</label><input id="ipi-stock-value" inputmode="decimal" placeholder="Informe o valor"></div><div class="control"><label for="ipi-stock-date">Data do estoque (opcional)</label><input id="ipi-stock-date" type="date"></div><div class="control"><label for="ipi-stock-group">Competência do C170 de referência</label><select id="ipi-stock-group" class="field"><option value="">Selecione após ler o C170</option></select></div></div><p><label for="ipi-stock-file">Planilha modelo C170 do estoque (XLSX, XLSM ou CSV)</label><input id="ipi-stock-file" class="field" type="file" accept=".xlsx,.xlsm,.csv"></p><div id="ipi-stock-sheets"></div><button id="ipi-stock-read" class="primary">Ler C170 do estoque</button><p id="ipi-stock-status" role="status">Informe o estoque e selecione o C170 de referência.</p><div id="ipi-stock-ex"></div><div id="ipi-stock-distribution" style="overflow:auto"></div><div id="ipi-stock-result" class="result">Pendente: informe o estoque contábil e leia o C170 de referência.</div></div>'+
  '<details class="card" style="margin-top:16px" open><summary><b>Consulta de CNAE e revisão dos fornecedores do teste de 50%</b></summary><p><label><input type="checkbox" id="ipi-cnpj-consent"> Autorizo enviar os CNPJs dos fornecedores à BrasilAPI / Minha Receita.</label></p><div class="button-row"><button id="ipi-cnpj-run" class="primary">Consultar CNAE dos fornecedores</button><button id="ipi-cnpj-stop" class="field" disabled>Interromper consultas</button></div><p class="fine">Somente CNPJs são enviados, sem notas ou valores. Consultas reais, sequenciais, intervalo de 2 segundos, até 100 fornecedores por execução. O teste de 50% usa apenas fornecedores consultados com atacado principal ou secundário. Representantes sem atacado e varejistas sem atacado ficam fora; erros ficam pendentes. O cadastro pode estar defasado.</p><p>CFOP e CNAE não comprovam o crédito. Para a revisão dos itens selecionados, confirme fornecedor atacadista não contribuinte do IPI e não optante pelo Simples Nacional. O destinatário deve ser industrial ou equiparado e a aquisição precisa atender aos requisitos de insumo.</p><label><input id="ipi-insumos" type="checkbox"> Revisei o enquadramento do destinatário e o uso dos itens considerados como matéria-prima, produto intermediário ou embalagem.</label><div id="ipi-suppliers"></div><p class="fine"><a href="https://www2.camara.leg.br/legin/fed/decret/2010/decreto-7212-15-junho-2010-606731-normaatualizada-pe.html" target="_blank" rel="noopener">RIPI — arts. 227 e 228</a>. O total com fornecedores confirmados continua sendo teste pelo roteiro; não é autorização de crédito nem validação automática da legislação.</p></details>'+
  '<details class="card" style="margin-top:16px"><summary>Exclusões, duplicatas e pendências</summary><div id="ipi-issues"></div><p class="fine">Canceladas/denegadas/inutilizadas são excluídas por cod_sit. Totais e células de cálculo não entram como itens. Cópias entre abas não são somadas duas vezes; conflitos exigem correção do arquivo. Linhas ocultas também são lidas e identificadas. Valores ajustados manualmente em fórmulas de soma não substituem os itens originais.</p></details>'+
  '<div class="notice" style="color:var(--text);margin-bottom:24px">O teste reproduz o roteiro informado e mostra a base dos itens. Confira com a capa do Livro de Apuração. Uma alíquota predominante não substitui a alíquota legal de cada NCM, suas notas e Ex. A TIPI fornecida é uma referência fixa e precisa corresponder à data da operação.</div></div>';
  const $=id=>host.querySelector('#ipi-'+id);
- let books=[],table=null,sourceItems=[],issues=[],report={items:[],groups:[]},suppliers={},exChoices={},rateChoices={},stock={},epoch=0,supplierChecks={},cnpjController=null,lastRequest=0;
+ let books=[],table=null,sourceItems=[],issues=[],report={items:[],groups:[]},suppliers={},exChoices={},rateChoices={},stock={},epoch=0,supplierChecks={},cnpjController=null,lastRequest=0,stockBooks=[],stockItems=[],stockIssues=[],stockReport={items:[],groups:[]};
  const status=s=>{$('status').textContent=s;};
+ const stockCard=$('stock-value').closest('.card');host.querySelector('.wrap').insertBefore(stockCard,host.querySelector('.wrap .card'));
  function invalidate(){sourceItems=[];issues=[];report={items:[],groups:[]};suppliers={};supplierChecks={};exChoices={};rateChoices={};$('summary').textContent='Reprocesse os arquivos após alterar a seleção.';$('distribution').textContent='';$('details').textContent='';$('issues').textContent='';$('ex').textContent='';$('suppliers').textContent='';$('stock-group').innerHTML='<option value="">Selecione após conferir</option>';updateStock();}
  function tableHtml(headers,rows){return '<table class="tax-table"><thead><tr>'+headers.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+rows.join('')+'</tbody></table>';}
  function updateStock(){
-  const value=numberBR($('stock-value').value),date=$('stock-date').value,g=report.groups.find(g=>g.key===$('stock-group').value);
-  const ok=value!==null&&value>=0&&date&&g&&typeof g.rate==='number';
+  const value=numberBR($('stock-value').value),date=$('stock-date').value,g=stockReport.groups.find(g=>g.key===$('stock-group').value);
+  const ok=value!==null&&value>=0&&g&&typeof g.rate==='number';
   const total=ok?Math.round(cents(value)*g.rate/100):null;
-  stock={'Data':date,'Estoque contábil (R$)':value??'Não informado','Referência':g?.key||'Não selecionada','Alíquota (%)':g?.rate??'Pendente','Teste de estoque (R$)':total===null?'Pendente':cash(total),'Observação':'Teste isolado. Não somado às entradas.'};
-  $('stock-result').textContent=ok?money(cents(value))+' × '+g.rate+'% = '+money(total)+' (teste do estoque).':'Pendente: informe estoque válido, data e referência com alíquota numérica definida.';
+  stock={'Data':date||'Não informada','Estoque contábil (R$)':value??'Não informado','Referência':g?.key||'Não selecionada','Alíquota (%)':g?.rate??'Pendente','Teste de estoque (R$)':total===null?'Pendente':cash(total),'Observação':'Teste isolado. Não somado às entradas.'};
+  $('stock-result').textContent=ok?money(cents(value))+' × '+g.rate+'% = '+money(total)+' (teste do estoque).':'Pendente: informe o estoque e leia o C170; confira NCMs/Ex e selecione uma competência com alíquota definida.';
  }
  function render(){
   if(!table)return;
+  stockReport=calculate(stockItems,table,{deduct:$('deduct').checked,exChoices,rateChoices});
   report=calculate(sourceItems,table,{deduct:$('deduct').checked,exChoices,rateChoices,suppliers,supplierChecks,insumos:$('insumos').checked});
   $('summary').innerHTML=tableHtml(['Competência / grupo','Itens / pendências TIPI','Base dos itens','Alíquota mais frequente','Base após fator','Teste pelo roteiro','Por alíquota de cada item','Diferença'],report.groups.map(g=>{
    let rate=typeof g.rate==='number'?g.rate+'%':g.rate==='NT'?'NT — sem taxa numérica':g.reason;
@@ -191,15 +193,19 @@ async function mount(){
   for(const el of $('summary').querySelectorAll('[data-rate]'))el.onchange=()=>{if(el.value==='')delete rateChoices[el.dataset.rate];else rateChoices[el.dataset.rate]=el.value==='NT'?'NT':Number(el.value);render();};
   $('distribution').innerHTML=tableHtml(['Competência / grupo','Alíquota TIPI','Linhas de itens','Base'],report.groups.flatMap(g=>g.distribution.map(d=>'<tr><td>'+esc(g.month+' / '+g.group)+'</td><td>'+esc(d.rate)+'</td><td>'+d.count+'</td><td>'+money(d.base)+'</td></tr>')));
   $('details').innerHTML=tableHtml(['Origem','Nota/item','NCM / Ex','Produto','Base','Alíquota TIPI / página','Pendência'],report.items.slice(0,1000).map(r=>'<tr><td>'+esc(r.ref)+'</td><td>'+esc(r.doc+'/'+r.item)+'</td><td>'+esc(r.ncm)+' / '+esc(r.tax.ex??'pendente')+'</td><td>'+esc(r.description)+'</td><td>'+money(r.net)+'</td><td>'+esc(r.tax.label)+' / '+esc(r.tax.page??'—')+'</td><td>'+esc(r.tax.error||'')+'</td></tr>'));
-  const choices=[...new Set(report.items.filter(r=>r.tax.options?.length>1).map(r=>r.ncm))];
-  $('ex').innerHTML=choices.length?'<h4>NCMs com Ex — escolha após conferir o produto</h4>'+choices.map(ncm=>'<p><label>'+esc(ncm)+' <select class="field" data-ex="'+ncm+'"><option value="">Pendente</option>'+table.entries[ncm].map(o=>'<option value="'+(o.ex||'base')+'" '+(exChoices[ncm]===o.ex?'selected':'')+'>'+esc((o.ex?'Ex '+o.ex:'Padrão')+' · '+o.rate+'% · '+o.description.slice(0,110))+'</option>').join('')+'</select></label></p>').join(''):'';
-  for(const el of $('ex').querySelectorAll('[data-ex]'))el.onchange=()=>{if(!el.value)delete exChoices[el.dataset.ex];else exChoices[el.dataset.ex]=el.value==='base'?'':el.value;render();};
+  function renderEx(items,target){
+   const choices=[...new Set(items.filter(r=>r.tax.options?.length>1).map(r=>r.ncm))];
+  $(target).innerHTML=choices.length?'<h4>NCMs com Ex — escolha após conferir o produto</h4>'+choices.map(ncm=>'<p><label>'+esc(ncm)+' <select class="field" data-ex="'+ncm+'"><option value="">Pendente</option>'+table.entries[ncm].map(o=>'<option value="'+(o.ex||'base')+'" '+(exChoices[ncm]===o.ex?'selected':'')+'>'+esc((o.ex?'Ex '+o.ex:'Padrão')+' · '+o.rate+'% · '+o.description.slice(0,110))+'</option>').join('')+'</select></label></p>').join(''):'';
+  for(const el of $(target).querySelectorAll('[data-ex]'))el.onchange=()=>{if(!el.value)delete exChoices[el.dataset.ex];else exChoices[el.dataset.ex]=el.value==='base'?'':el.value;render();};
+  }
+  renderEx(report.items,'ex');renderEx(stockReport.items,'stock-ex');
   const supplierMap=new Map();for(const r of report.items.filter(r=>r.group==='Atacadista 50%'))if(!supplierMap.has(r.supplier))supplierMap.set(r.supplier,r.supplierName);
   $('suppliers').innerHTML=tableHtml(['Fornecedor / CNPJ','Consulta e evidência CNAE','Revisão dos requisitos do fornecedor'],[...supplierMap].map(([id,name])=>'<tr><td>'+esc(name)+'<br>'+esc(id||'CNPJ ausente')+'</td><td>'+esc(supplierChecks[id]?.state||'Pendente')+'<br>'+esc(supplierChecks[id]?.error||supplierChecks[id]?.category||'')+'<br>'+esc((supplierChecks[id]?.activities||[]).filter(a=>a.kind==='Atacado').map(a=>a.origin+': '+a.codigo+' '+a.descricao).join('; '))+'<br>'+esc(supplierChecks[id]?.checked||'')+'</td><td><select class="field" data-supplier="'+esc(id)+'" '+(!id?'disabled':'')+'><option value="">Pendente</option><option value="confirmed" '+(suppliers[id]==='confirmed'?'selected':'')+'>Atacadista não contribuinte IPI, fora do Simples — conferido</option><option value="excluded" '+(suppliers[id]==='excluded'?'selected':'')+'>Não atende / excluir da base revisada</option></select></td></tr>'));
   const reviewed=report.groups.filter(g=>g.group==='Atacadista 50%').map(g=>'<p>'+esc(g.month)+': base com fornecedores confirmados '+money(g.reviewedBase)+'; teste correspondente '+money(g.reviewedSimulation)+'. Itens sem fornecedor confirmado: '+g.pendingSuppliers+'.</p>').join('');
   $('suppliers').insertAdjacentHTML('beforeend',reviewed);
   for(const el of $('suppliers').querySelectorAll('[data-supplier]'))el.onchange=()=>{suppliers[el.dataset.supplier]=el.value;render();};
-  const selected=$('stock-group').value;$('stock-group').innerHTML='<option value="">Selecione após conferir</option>'+report.groups.map(g=>'<option value="'+esc(g.key)+'">'+esc(g.month+' · '+g.group+' · '+(g.rate??'pendente'))+'</option>').join('');$('stock-group').value=selected;updateStock();
+  const selected=$('stock-group').value;$('stock-group').innerHTML='<option value="">Selecione após conferir</option>'+stockReport.groups.map(g=>'<option value="'+esc(g.key)+'">'+esc(g.month+' · '+(g.rate??'pendente'))+'</option>').join('');$('stock-group').value=selected|| (stockReport.groups.length===1?stockReport.groups[0].key:'');updateStock();
+  $('stock-distribution').innerHTML=tableHtml(['Competência C170','Alíquota TIPI','Linhas de itens'],stockReport.groups.flatMap(g=>g.distribution.map(d=>'<tr><td>'+esc(g.month)+'</td><td>'+esc(d.rate)+'</td><td>'+d.count+'</td></tr>')));
   const allIssues=[...issues,...report.items.filter(r=>r.tax.error).map(r=>({...r,error:r.tax.error})),...report.items.filter(r=>r.numericKey).map(r=>({...r,error:'Chave NF-e foi armazenada como número no Excel e perdeu precisão. Identidade usa fornecedor, nota, série, data e item.'}))];
   $('issues').innerHTML='<p>'+allIssues.length+' ocorrências. Até 500 na tela; todas na exportação.</p>'+tableHtml(['Arquivo / aba / linha','Descrição'],allIssues.slice(0,500).map(r=>'<tr><td>'+esc(r.ref||r.file+' / '+r.sheet+' / '+r.row)+'</td><td>'+esc(r.error)+'</td></tr>'));
  }
@@ -236,8 +242,36 @@ async function mount(){
  $('deduct').onchange=()=>{render();status('Base atualizada. Confira a dedução de descontos com o relatório de origem.');};
  $('insumos').onchange=render;
  for(const id of ['stock-value','stock-date','stock-group'])$(id).oninput=updateStock;
- $('clear').onclick=()=>{cnpjController?.abort();epoch++;books=[];invalidate();$('files').value='';$('sheets').textContent='';$('stock-value').value='';$('stock-date').value='';$('insumos').checked=false;updateStock();status('Arquivos e resultados removidos desta aba.');};
+ $('clear').onclick=()=>{cnpjController?.abort();epoch++;books=[];invalidate();$('files').value='';$('sheets').textContent='';$('stock-value').value='';$('stock-date').value='';$('stock-file').value='';$('stock-sheets').textContent='';stockBooks=[];stockItems=[];stockIssues=[];stockReport={items:[],groups:[]};$('stock-distribution').textContent='';$('stock-ex').textContent='';$('insumos').checked=false;updateStock();status('Arquivos e resultados removidos desta aba.');};
  
+
+ $('stock-file').onchange=async()=>{
+  stockBooks=[];stockItems=[];stockIssues=[];stockReport={items:[],groups:[]};render();$('stock-sheets').textContent='';
+  const file=$('stock-file').files[0];if(!file)return;
+  try{
+   if(file.size>15*1024*1024)throw new Error('C170 excede 15 MB.');
+   if(!/\.(xlsx|xlsm|csv)$/i.test(file.name))throw new Error('Use XLSX, XLSM ou CSV.');
+   const lib=await excel(),csv=/\.csv$/i.test(file.name),raw=csv?await file.text():await file.arrayBuffer();
+   const book=lib.read(raw,{type:csv?'string':'array',raw:true,cellStyles:true});stockBooks=[{name:file.name,book}];
+   const all=book.SheetNames.find(n=>normalized(n)==='todososmeses');
+   $('stock-sheets').innerHTML=book.SheetNames.map((n,i)=>'<label style="display:inline-block;margin:6px"><input type="checkbox" data-stock-sheet="'+i+'" '+(!all||n===all?'checked':'')+'> '+esc(n)+'</label>').join('');
+   for(const el of $('stock-sheets').querySelectorAll('input'))el.onchange=()=>{stockItems=[];stockIssues=[];stockReport={items:[],groups:[]};render();$('stock-status').textContent='Seleção alterada. Leia novamente o C170.';};
+   $('stock-status').textContent='C170 lido. Confira as abas e clique em Ler C170 do estoque.';
+  }catch(e){$('stock-status').textContent=e.message;}
+ };
+ $('stock-read').onclick=()=>{
+  try{
+   if(!table)throw new Error('A TIPI ainda não carregou.');
+   if(!stockBooks.length)throw new Error('Selecione a planilha modelo C170.');
+   const b=stockBooks[0],checked=[...$('stock-sheets').querySelectorAll('input:checked')];if(!checked.length)throw new Error('Selecione ao menos uma aba do C170.');
+   let items=[],pending=[],formulaCount=0,excluded=0;
+   for(const el of checked){const n=b.book.SheetNames[Number(el.dataset.stockSheet)],p=extractSheet(b.book.Sheets[n],{file:b.name,name:n,stockReference:true});items.push(...p.items,...p.cancelled);pending.push(...p.issues);formulaCount+=p.formulaRows.length;excluded+=p.excluded;}
+   const d=deduplicate(items);stockIssues=[...pending,...d.duplicates,...d.conflicts];
+   if(d.conflicts.length){stockItems=[];render();throw new Error('Há itens divergentes no C170. Corrija as versões para determinar a alíquota do estoque.');}
+   stockItems=d.items;if(!stockItems.length)throw new Error('Não encontrei itens de entrada no C170 selecionado.');
+   render();$('stock-status').textContent=stockItems.length+' linhas únicas de itens; '+excluded+' canceladas excluídas; '+formulaCount+' fórmulas de total ignoradas; '+pending.length+' pendências de importação. Confira NCMs/Ex e a competência de referência.';
+  }catch(e){$('stock-status').textContent=e.message;}
+ };
  $('cnpj-stop').onclick=()=>cnpjController?.abort();
  $('cnpj-run').onclick=async()=>{
   if(cnpjController)return;
@@ -270,9 +304,9 @@ async function mount(){
  };
  $('export').onclick=async()=>{
   try{
-   if(!report.groups.length)throw new Error('Processe as planilhas primeiro.');
+   if(!report.groups.length&&!stockReport.groups.length)throw new Error('Leia o C170 do estoque ou processe os relatórios de entradas primeiro.');
    const lib=await excel(),wb=lib.utils.book_new(),extra=[...issues,...report.items.filter(r=>r.tax.error).map(r=>({...r,error:r.tax.error}))];
-   const data=exportData(report,extra,stock,table.meta);data.Fornecedores=Object.entries(supplierChecks).map(([id,v])=>({'CNPJ':id,'Consulta':v.state,'Razão social':v.name||'','Classificação':v.category||'','Possui atacado':v.state==='Consultado'?(v.wholesale?'Sim':'Não'):'Pendente','CNAEs atacado':(v.activities||[]).filter(a=>a.kind==='Atacado').map(a=>a.origin+': '+a.codigo+' '+a.descricao).join('; '),'Consultado em':v.checked||'','Erro':v.error||'','Requisitos adicionais':suppliers[id]||'Pendente'}));for(const [name,rows] of Object.entries(data)){const ws=lib.utils.json_to_sheet(rows);ws['!cols']=Array.from({length:Object.keys(rows[0]||{}).length},()=>({wch:26}));lib.utils.book_append_sheet(wb,ws,name);}
+   const data=exportData(report,extra,stock,table.meta);const stockData=exportData(stockReport,stockIssues,stock,table.meta);data.EstoqueC170=stockData.Itens;data.EstoqueAliquotas=stockData.Distribuicao;data.Fornecedores=Object.entries(supplierChecks).map(([id,v])=>({'CNPJ':id,'Consulta':v.state,'Razão social':v.name||'','Classificação':v.category||'','Possui atacado':v.state==='Consultado'?(v.wholesale?'Sim':'Não'):'Pendente','CNAEs atacado':(v.activities||[]).filter(a=>a.kind==='Atacado').map(a=>a.origin+': '+a.codigo+' '+a.descricao).join('; '),'Consultado em':v.checked||'','Erro':v.error||'','Requisitos adicionais':suppliers[id]||'Pendente'}));for(const [name,rows] of Object.entries(data)){const ws=lib.utils.json_to_sheet(rows);ws['!cols']=Array.from({length:Object.keys(rows[0]||{}).length},()=>({wch:26}));lib.utils.book_append_sheet(wb,ws,name);}
    lib.writeFile(wb,'teste-ipi-conferencia.xlsx');
   }catch(e){status(e.message);}
  };

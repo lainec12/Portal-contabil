@@ -35,4 +35,9 @@ const tie=predominant([{tax:{rate:0},net:100},{tax:{rate:3.25},net:100}]);assert
 assert.equal(predominant([{tax:{rate:3.25},net:100},{tax:{rate:null},net:100}]).rate,null);
 const conflicted=deduplicate([parsed.items[0],{...parsed.items[0],gross:999}]);assert.equal(conflicted.items.length,0);
 assert.equal(exportData(r,[],{},{}).Itens[0]['Alíquota TIPI (%)'],3.25);
+const stockSource=sheet([['Janeiro de 2026',9,1,100,0,1556,82075011,0,'11222333000181',1,46000,0]]);
+assert.equal(extractSheet(stockSource).items.length,0);
+const stockParsed=extractSheet(stockSource,{stockReference:true});
+assert.equal(stockParsed.items[0].group,'Estoque C170');
+const stockResult=calculate(stockParsed.items,table);assert.equal(stockResult.groups[0].rate,5.2);assert.equal(stockResult.groups[0].items.length,1);
 console.log('IPI: CFOPs, base por item/desconto, moda por frequência, TIPI/Ex/NT, duplicatas, conflitos e fatores OK');
