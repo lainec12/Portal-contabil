@@ -1,0 +1,13 @@
+import fs from 'node:fs';import assert from 'node:assert/strict';import {resolveRate} from '../ipi-test.mjs';
+const table=JSON.parse(fs.readFileSync(new URL('../tipi-ipi.json',import.meta.url),'utf8'));
+assert.equal(table.meta.pages,462);assert.equal(table.meta.sha256.length,64);
+assert.equal(resolveRate('68022300',table).rate,null);
+assert.equal(resolveRate('68022300',table,'').rate,3.25);
+assert.equal(resolveRate('68022300',table,'01').rate,.65);
+assert.equal(resolveRate('68022300',table,'').page,293);
+assert.equal(resolveRate('82075011',table).rate,5.2);
+assert.equal(resolveRate('63079010',table).rate,0);
+assert.equal(resolveRate('25151210',table).rate,'NT');
+assert.equal(resolveRate('39191000',table).rate,null);
+assert.equal(resolveRate('87021000',table).rate,null);
+console.log('TIPI: NCM/Ex, zero e NT conferidos com páginas do PDF fornecido; ambiguidade permanece pendente');
