@@ -22,12 +22,25 @@ jobs:
     steps:
       - name: Baixar codigo
         uses: actions/checkout@v4
+      - name: Restaurar Portal Contabil completo
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          cp -a ./. _site/
+          rm -rf _site/.git _site/.github _site/_site
+          test -f payload-site-9a50c35200/site-000.txt
+          cat payload-site-9a50c35200/site-*.txt > _site/index.html
+          test -s _site/index.html
+          grep -q '</html>' _site/index.html
+          grep -q 'Portal Contábil' _site/index.html
+          echo "Portal reconstruido: $(wc -c < _site/index.html) bytes"
       - name: Preparar GitHub Pages
         uses: actions/configure-pages@v5
       - name: Enviar arquivos do site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
       - name: Publicar site
         id: deployment
         uses: actions/deploy-pages@v4
