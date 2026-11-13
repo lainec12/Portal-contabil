@@ -133,17 +133,26 @@ $('file').addEventListener('change',async e=>{
   }
   const sr=extractSummary(pages),dr=extractDetail(pages);individual=dr.out.filter(n=>n.status!=='Anulada');
   notes=[...sr.issues,...dr.issues];
-  if(sr.found.length){
-    entries=sr.found;summary=tally(sr.found);
-    if(sr.recognizedMonths.length!==summary.length)notes.push('Nem todos os meses do quadro foram reconhecidos.');
-    if(dr.out.length){const differences=compare(sr.found,dr.out);notes.push(...differences.map(s=>'Divergência: '+s));verified=differences.length===0&&sr.issues.length===0&&dr.issues.length===0&&sr.recognizedMonths.length===summary.length}
-    else {verified=false;notes.push('Quadros-resumo utilizados como fonte; sem conferência linha a linha.')}
-  }else if(dr.out.length&&dr.issues.length===0){
-    entries=dr.out;summary=tally(entries);verified=true;
+  // Fonte principal: notas individuais completas; resumos somente para confronto.
+  if(dr.recognized && dr.out.length && dr.issues.length===0){
+    entries=dr.out;summary=tally(entries);
+    if(sr.found.length){
+      const foundMonths=new Set(sr.recognizedMonths);
+      const partial=summary.some(m=>!foundMonths.has(m.key)) || sr.issues.length>0;
+      const diffs=compare(sr.found,dr.out);
+      if(partial)notes.push('Quadros mensais parcialmente identificados; valores individuais preservados.');
+      notes.push(...diffs.map(x=>'Quadro mensal divergente: '+x));
+      verified=!partial&&diffs.length===0;
+    }else{
+      verified=false;notes.push('Notas extraídas, mas quadro-resumo não reconhecido; conferir totais.');
+    }
+  }else if(sr.found.length){
+    // Quadro-resumo é exibido apenas como parcial, sem declarar notas inexistentes.
+    entries=sr.found;summary=tally(sr.found);verified=false;
+    notes.push('Não foi possível ler todas as notas individualmente; exibição preliminar de quadros-resumo.');
   }else{
-    throw Error('Não foi possível validar todas as linhas/colunas do PDF. Nenhum total será mostrado. '+dr.issues.slice(0,3).join(' | '));
+    throw Error('As colunas do PDF não foram reconhecidas com segurança. Confira o layout ou exporte CSV/XLSX. '+dr.issues.slice(0,3).join(' | '));
   }
-  if(dr.recognized && dr.issues.length)notes.push('Atenção: notas não conciliadas: '+dr.issues.length);
   if(!summary.length)throw Error('Nenhum valor de serviços validado. Revise o leiaute do arquivo.');
   const total=summary.reduce((n,x)=>n+x.total,0),voidTotal=summary.reduce((n,x)=>n+x.voidTotal,0),issOwn=summary.reduce((n,x)=>n+x.issOwn,0),issRet=summary.reduce((n,x)=>n+x.issRet,0),issAvailable=summary.every(x=>!x.issMissing);
   const validCount=dr.recognized&&!dr.issues.length?dr.out.filter(x=>x.status!=='Anulada').length:null;
@@ -154,12 +163,12 @@ $('file').addEventListener('change',async e=>{
   for(const m of summary){const tr=document.createElement('tr');const d=dr.recognized&&!dr.issues.length?tally(dr.out).find(x=>x.key===m.key):null;[month(m.key),d?d.valid:'—',money(m.total),d?d.void:'—',money(m.voidTotal),m.issMissing?'—':money(m.issOwn),m.issMissing?'—':money(m.issRet),m.issMissing?'—':money(m.issOwn+m.issRet)].forEach((v,i)=>cell(tr,v,i?'num':''));$('rows').append(tr)}
   $('foot').replaceChildren();const tr=document.createElement('tr');['TOTAL',validCount===null?'—':validCount,money(total),voidCount===null?'—':voidCount,money(voidTotal),issAvailable?money(issOwn):'—',issAvailable?money(issRet):'—',issAvailable?money(issOwn+issRet):'—'].forEach((v,i)=>{const th=document.createElement('th');th.textContent=v;th.className=i?'num':'';tr.append(th)});$('foot').append(tr);
   $('canceladas').replaceChildren();for(const n of dr.out.filter(x=>x.status==='Anulada')){const row=document.createElement('tr');[n.date,n.num,money(n.cents)].forEach((v,i)=>cell(row,v,i===2?'num':''));$('canceladas').append(row)}
-  if(!issAvailable)notes.push('ISS não identificado em todos os quadros; colunas de ISS mantidas em branco.');
-  if(!verified){$('audit').classList.remove('hidden');$('audit').textContent='RELATÓRIO PRELIMINAR – NÃO VALIDADO. Total extraído dos quadros oficiais, mas conferência individual não concluída ou há divergências. '+notes.slice(0,8).join(' | ')}
+  if(!issAvailable)notes.push('ISS de notas sem identificação completa não somado.');
+  if(!verified){$('audit').classList.remove('hidden');$('audit').textContent='RELATÓRIO PRELIMINAR – PENDENTE DE CONCILIAÇÃO. '+notes.slice(0,8).join(' | ')}
   else if(notes.length){$('audit').classList.remove('hidden');$('audit').textContent='Observações da leitura: '+notes.slice(0,5).join(' | ')}
   $('warning').classList.toggle('hidden',verified);
   $('warning').textContent=verified?'':'Resultado em conferência: não utilize em declarações sem validar. '+notes.filter(x=>/diverg/i.test(x)).slice(0,5).join(' | ');
-  $('csv').disabled=!verified;$('print').disabled=!(verified||(sr.recognizedMonths.length===summary.length&&sr.issues.length===0));
+  $('csv').disabled=!verified;$('print').disabled=!(verified||(dr.recognized&&dr.out.length&&dr.issues.length===0));
   $('status').textContent=(verified?'Conferência concluída':'Conferência parcial')+': '+(sr.found.length?'quadro-resumo de '+summary.length+' meses':'notas individuais')+' • '+pdf.numPages+' páginas • serviços '+money(total)+'.';
   renderAudit();$('output').classList.remove('hidden');
  }catch(err){$('status').textContent='Falha na validação: '+err.message; $('audit').classList.remove('hidden');$('audit').textContent='Não foram gerados valores aproveitáveis. Informe o portal de origem ou disponibilize um exportador em CSV/XLSX.'}
