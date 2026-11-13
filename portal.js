@@ -199,6 +199,15 @@
   document.getElementById('askForm').addEventListener('submit',e=>{e.preventDefault();const text=document.getElementById('askText').value.trim(),key=normalizeText(text);if(/(?:\d[\s.\/-]*){11,14}/.test(text)){document.getElementById('askSuccess').innerHTML='<div class="success">Remova números que possam identificar CPF, CNPJ ou telefone antes de enviar.</div>';return}const item={id:'draft-'+Date.now(),nome:document.getElementById('askName').value.trim(),email:document.getElementById('askEmail').value.trim(),categoria:askCategory.value,regime:document.getElementById('askRegime').value,estado:document.getElementById('askState').value,pergunta:text,normalizada:key,repeticoes:1,status:'em análise',data:new Date().toISOString()};const saved=JSON.parse(localStorage.getItem('cc_questions')||'[]');const same=saved.find(x=>x.normalizada===key&&x.status!=='publicada');if(same)same.repeticoes=(same.repeticoes||1)+1;else saved.push(item);localStorage.setItem('cc_questions',JSON.stringify(saved));document.getElementById('askSuccess').innerHTML='<div class="success"><b>Sua dúvida está em análise.</b> O rascunho foi salvo neste navegador e ainda não aparece na busca pública.<br><button class="field" type="button" id="copyQuestion" style="margin-top:9px">Copiar pergunta</button></div>';document.getElementById('copyQuestion').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(text)}catch(e){}document.getElementById('copyQuestion').textContent='Copiado ✓'})});
   // Alternância de tema persistida no navegador.
   const savedTheme=localStorage.getItem('contaclara_theme');if(savedTheme)document.documentElement.dataset.theme=savedTheme;document.getElementById('themeToggle').addEventListener('click',()=>{const next=document.documentElement.dataset.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=next;localStorage.setItem('contaclara_theme',next);document.getElementById('themeToggle').textContent=next==='dark'?'☀':'☾'});
+  // Assistente fiscal: adiciona apenas um link ao menu existente, sem substituir paginas.
+  { const nav = document.getElementById('mainNav');
+    if (nav && !nav.querySelector('a[href$="assistente-operacoes-fiscais.html"]')) {
+      const link = document.createElement('a');
+      link.href = './assistente-operacoes-fiscais.html';
+      link.textContent = 'Assistente de Operações Fiscais';
+      nav.insertBefore(link, nav.children[1] || null);
+    }
+  }
   document.getElementById('menuToggle').addEventListener('click',e=>{const nav=document.getElementById('mainNav');const open=nav.classList.toggle('show');e.currentTarget.setAttribute('aria-expanded',String(open))});document.querySelectorAll('#mainNav a').forEach(a=>a.addEventListener('click',()=>{document.getElementById('mainNav').classList.remove('show');document.getElementById('menuToggle').setAttribute('aria-expanded','false')}));
   document.getElementById('dismissDisclaimer').addEventListener('click',()=>document.getElementById('disclaimer').style.display='none');
   // Calculadoras locais: fórmulas explicadas e sem envio de dados ao servidor.
