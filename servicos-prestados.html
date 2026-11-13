@@ -31,30 +31,30 @@ function firstMoneyAfter(items,minX,maxX){
  return matches.length?brnum(matches[0][0]):null;
 }
 function extractSummary(pages){
- let key=null,found=[],seen=new Set(),issues=[];
+ let key=null,found=[],seen=new Set(),issues=[],recognizedMonths=new Set();
+ const currencyPattern=/(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*|\d+),\d{2}\b/g;
  for(let pi=0;pi<pages.length;pi++){
   for(const row of pages[pi]){
-   const heading=norm(row.text).match(/quadro\s+resumo\s+(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s*\/\s*(20\d\d)/);
-   if(heading){key=heading[2]+'-'+meses[heading[1]];continue}
+   const normalized=norm(row.text);
+   const heading=normalized.match(/quadro\s+resumo\s+(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s*\/\s*(20\d{2})/);
+   if(heading){key=heading[2]+'-'+meses[heading[1]];recognizedMonths.add(key);continue}
    if(!key)continue;
-   const state=norm(row.text).match(/^\s*(anulada|anulado|cancelada|cancelado|exigivel|operacao\s+tribut|tributavel|normal|valida)\b/);
-   if(state){
-    const values=[...row.text.matchAll(/R\$\s*(\d{1,3}(?:\.\d{3})*|\d+),\d{2}\b/g)];
-    if(!values.length){issues.push('Resumo '+key+': sem valor na linha '+state[1]);continue}
-    const amount=brnum(values[0][1]);const numeric=row.items.filter(i=>/^(?:\d{1,3}(?:\.\d{3})*|\d+),\d{2}$/.test(i.txt)).sort((a,b)=>a.x-b.x);
-    // Quadros completos: Valor Docs, Base sem retenção, ISS sem retenção, Base retida, ISS retido.
-    // Não computar ISS de notas anuladas.
-    const own=numeric.length>=5?brnum(numeric[2].txt):null;
-    const ret=numeric.length>=5?brnum(numeric[4].txt):null;
-    const status=/anulad|cancelad/.test(state[1])?'Anulada':'Exigível';
-    const id=key+'|'+status;
-    if(seen.has(id)){issues.push('Resumo duplicado: '+id);continue}seen.add(id);
-    found.push({key,status,cents:amount,date:'01/'+month(key),num:'Quadro resumo',summary:true,issOwn:status==='Anulada'?0:own,issRet:status==='Anulada'?0:ret});continue;
-   }
-   if(/quadro\s+resumo|total\s+geral/i.test(norm(row.text))&&/quadro\s+resumo/i.test(norm(row.text))===false){/* mantenha o mês até próximo cabeçalho */}
+   const state=normalized.match(/^\s*(anulada|anulado|cancelada|cancelado|exigivel|operacao\s+tribut\w*|tributavel|normal|valida)/);
+   if(!state)continue;
+   const status=/anulad|cancelad/.test(state[1])?'Anulada':/operacao/.test(state[1])?'Operação tributária':'Exigível';
+   // Priorize a linha real de valores do quadro oficial, não alíquota e não o imposto.
+   const values=[...row.text.matchAll(currencyPattern)].map(m=>brnum(m[0]));
+   if(values.length<5){issues.push('Quadro '+key+', situação '+status+': cinco colunas monetárias não reconhecidas.');continue}
+   const [amount,baseOwn,issOwn,baseRet,issRet]=values.slice(0,5);
+   if([amount,baseOwn,issOwn,baseRet,issRet].some(x=>!Number.isFinite(x))){issues.push('Valor ilegível em '+key+', '+status);continue}
+   const id=key+'|'+status;
+   if(seen.has(id)){issues.push('Linha de quadro repetida: '+id);continue}
+   seen.add(id);
+   found.push({key,status,cents:amount,date:'01/'+month(key),num:'Quadro resumo',summary:true,baseOwn,baseRet,issOwn:status==='Anulada'?0:issOwn,issRet:status==='Anulada'?0:issRet});
   }
  }
- return {found,issues};
+ for(const m of recognizedMonths)if(!found.some(r=>r.key===m))issues.push('Sem valores reconhecidos em '+m);
+ return {found,issues,recognizedMonths:[...recognizedMonths]};
 }
 function extractDetail(pages){
  let out=[],issues=[],seen=new Set(),withHeader=0,rawDates=0;
@@ -138,8 +138,9 @@ $('file').addEventListener('change',async e=>{
   notes=[...sr.issues,...dr.issues];
   if(sr.found.length){
     entries=sr.found;summary=tally(sr.found);
-    if(dr.out.length){const differences=compare(sr.found,dr.out);notes.push(...differences.map(s=>'Divergência: '+s));verified=differences.length===0&&sr.issues.length===0}
-    else {verified=sr.issues.length===0;notes.push('Quadros-resumo utilizados como fonte oficial; não foi possível conferir notas individuais.')}
+    if(sr.recognizedMonths.length!==summary.length)notes.push('Nem todos os meses do quadro foram reconhecidos.');
+    if(dr.out.length){const differences=compare(sr.found,dr.out);notes.push(...differences.map(s=>'Divergência: '+s));verified=differences.length===0&&sr.issues.length===0&&dr.issues.length===0&&sr.recognizedMonths.length===summary.length}
+    else {verified=false;notes.push('Quadros-resumo utilizados como fonte; sem conferência linha a linha.')}
   }else if(dr.out.length&&dr.issues.length===0){
     entries=dr.out;summary=tally(entries);verified=true;
   }else{
