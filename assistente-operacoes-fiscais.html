@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Assistente de Operações Fiscais | Portal Contábil</title>
+<style>
+:root{font-family:Inter,system-ui,Arial,sans-serif;color:#25183d;background:#f6f2ff}*{box-sizing:border-box}body{margin:0}header{background:linear-gradient(110deg,#4d2384,#7950bf);color:white;padding:24px max(22px,calc((100vw - 1060px)/2))}header h1{margin:5px 0;font-size:27px}header p{margin:6px 0 0;color:#f2e8ff}main{max-width:1060px;margin:24px auto;padding:0 16px 50px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.panel{background:#fff;border:1px solid #e5d9f8;border-radius:16px;padding:22px;box-shadow:0 4px 20px #4a24800b}.full{grid-column:1/-1}h2{font-size:21px;margin:0 0 18px}label{display:block;font-weight:650;margin:14px 0 6px}select,input,textarea{display:block;width:100%;border:1px solid #cfc0e4;border-radius:9px;background:white;padding:11px;color:#23163c;font:inherit}textarea{min-height:85px}button{border:0;background:#6c35ab;color:#fff;padding:12px 18px;font-weight:700;border-radius:9px;cursor:pointer;margin:10px 8px 0 0}button.secondary{background:#eee5fa;color:#49227e}button:hover{filter:brightness(.95)}.hint{font-size:13px;color:#66577b}.warn{border-left:4px solid #b97700;background:#fff9e9;padding:12px;border-radius:8px;margin:12px 0}.ok{border-left:4px solid #6b39b0;background:#f5efff;padding:12px;border-radius:8px;margin:12px 0}.result{display:none}table{border-collapse:collapse;width:100%;font-size:14px}td,th{padding:11px;border-bottom:1px solid #eee8f7;text-align:left;vertical-align:top}th{width:32%;color:#5a3b82}a{color:#6832a6}small{color:#6e627b}footer{margin:16px 0;color:#746989;font-size:12px} @media(max-width:720px){.grid{grid-template-columns:1fr}.full{grid-column:auto}header{padding:22px}header h1{font-size:22px}}@media print{header,form,.actions,footer{display:none!important}body{background:white}.grid{display:block}.panel{box-shadow:none;border:0}#result{display:block!important}}
+</style></head>
+<body><header><div>PORTAL CONTÁBIL · FERRAMENTAS</div><h1>Assistente de Operações Fiscais</h1><p>Orientação preliminar para entrada de mercadorias com conferências e base legal</p></header>
+<main><div class="grid"><section class="panel"><h2>Dados da operação</h2><form id="form">
+<label for="ufEmpresa">UF da empresa</label><select id="ufEmpresa"><option value="GO">Goiás (GO)</option><option value="OUTRA">Outra UF — análise manual</option></select>
+<label for="regime">Regime tributário</label><select id="regime"><option value="real">Lucro Real</option><option value="presumido">Lucro Presumido</option><option value="simples">Simples Nacional</option></select>
+<label for="vendedor">Tipo de vendedor</label><select id="vendedor"><option value="pf">Pessoa física não contribuinte</option><option value="habitual">Pessoa física que vende habitualmente / contribuinte a verificar</option><option value="rural">Produtor rural</option><option value="pj">Pessoa jurídica</option></select>
+<label for="ufVendedor">UF do vendedor</label><select id="ufVendedor"><option value="GO">Goiás (GO)</option><option value="OUTRA">Outro estado</option></select>
+<label for="finalidade">Finalidade da compra</label><select id="finalidade"><option value="revenda">Revenda</option><option value="industrializacao">Industrialização</option><option value="ativo">Ativo imobilizado</option><option value="uso">Uso e consumo</option></select>
+<label for="produto">Descrição da mercadoria</label><input id="produto" value="Artigos religiosos" required>
+<label for="ncm">NCM (opcional; sem classificação automática)</label><input id="ncm" inputmode="numeric" maxlength="10" placeholder="Informe o NCM validado">
+<label for="valor">Valor da compra (R$; opcional)</label><input id="valor" type="number" min="0" step="0.01" placeholder="0,00">
+<button type="submit">Analisar operação</button><button class="secondary" type="reset">Limpar</button></form></section>
+<section class="panel" id="result"><h2>Resultado da análise</h2><p id="intro"></p><table><tbody id="resumo"></tbody></table><div id="observacoes"></div><div class="actions"><button type="button" id="copiar">Copiar orientação</button><button type="button" class="secondary" id="pdf">Salvar em PDF / Imprimir</button></div></section>
+<section class="panel full"><h2>Como funciona</h2><p>Esta ferramenta entrega uma <strong>orientação preliminar</strong>. Não consulta automaticamente a SEFAZ ou tabelas de NCM e não transmite NF-e. A definição de CST, alíquotas, benefícios, substituição tributária e eventual recolhimento depende do produto e da situação do fornecedor.</p><p class="hint">Atenção: a operação de revenda não fica automaticamente isenta por se tratar de artigos religiosos. Para enquadrar a tributação, informe NCM e descrição específica do item e revise a legislação vigente.</p></section></div><footer>Portal Contábil · Assistente informativo. Confirme regras vigentes com a legislação oficial e o responsável fiscal antes da escrituração.</footer></main>
+<script>
+const $=id=>document.getElementById(id);
+const rows=(data)=>Object.entries(data).map(([a,b])=>'<tr><th>'+a+'</th><td>'+b+'</td></tr>').join('');
+const fmt=n=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(n);
+let texto='';
+$('form').addEventListener('submit',e=>{
+e.preventDefault();
+const uf=$('ufEmpresa').value, vend=$('vendedor').value, regime=$('regime').value, finalidade=$('finalidade').value, outra=$('ufVendedor').value==='OUTRA', produto=$('produto').value.trim(), ncm=$('ncm').value.trim(), valor=$('valor').value;
+let cfop={'revenda':outra?'2.102':'1.102','industrializacao':outra?'2.101':'1.101','ativo':outra?'2.551':'1.551','uso':outra?'2.556':'1.556'}[finalidade];
+const base=uf==='GO' && vend==='pf';
+const obs=[];
+if(base){obs.push('Pessoa física não obrigada a emitir documento fiscal: em regra, o adquirente contribuinte emite NF-e de entrada modelo 55, com tipo de operação Entrada, identificando a empresa como emitente e a pessoa física como remetente. Conferir art. 159, III, a, item 2, e art. 162, VIII, do RCTE/GO.');}
+else{obs.push('A emissão e a escrituração dependem de validação específica. Não aplicar automaticamente o procedimento destinado à aquisição de pessoa física não contribuinte em Goiás.');}
+if(vend==='habitual')obs.push('Venda habitual pode indicar obrigação de inscrição/contribuição ao ICMS. Verificar cadastro e obrigação de emissão do vendedor antes de emitir documento pelo adquirente.');
+if(vend==='rural')obs.push('Produtor rural: conferir inscrição, nota fiscal própria e regras específicas do estado.');
+if(vend==='pj')obs.push('Pessoa jurídica: verificar documento fiscal emitido pelo fornecedor; não substituir automaticamente a NF-e de saída por nota própria de entrada.');
+if(outra)obs.push('Operação interestadual: avaliar regras da UF de origem, transporte e obrigações específicas.');
+if(uf!=='GO')obs.push('A base legal de Goiás não substitui a legislação da UF do estabelecimento adquirente.');
+obs.push('Sem NCM validado, não é possível fixar CST de ICMS, alíquota, ST, benefício fiscal ou CFOP especial com segurança. O CFOP apresentado é apenas o usual para a finalidade indicada.');
+obs.push('Na aquisição de pessoa física não contribuinte, em regra não há ICMS destacado pelo vendedor nem crédito ordinário de ICMS; conferir exceções legais e obrigações sobre a operação.');
+if(regime==='real'&&vend==='pf')obs.push('PIS e COFINS não cumulativos: a aquisição de pessoa física não gera crédito ordinário, conforme art. 3º, § 3º, I, das Leis 10.637/2002 e 10.833/2003. Conferir regimes específicos/exceções.');
+else obs.push('Créditos de PIS/COFINS e demais reflexos dependem do regime e do fornecedor. Não calcular automaticamente.');
+obs.push('Registrar no estoque com documentação de suporte: identificação do vendedor, relação dos itens, quantidades, preço e comprovante de pagamento. NF-e é documento fiscal; a transmissão deve ocorrer no emissor autorizado.');
+const dados={'Operação':produto,'UF compradora':uf,'Fornecedor':$('vendedor').selectedOptions[0].text,'Regime':$('regime').selectedOptions[0].text,'Finalidade':$('finalidade').selectedOptions[0].text,'CFOP sugerido (confirmar)':cfop,'Tipo de NF-e':base?'NF-e 55 — Entrada (0)':'Requer análise do fornecedor e legislação','CST ICMS':'Não determinado: depende da tributação efetiva','ICMS':'Verificar incidência e regras por produto/operação','Crédito ICMS':base?'Em regra, inexistente crédito ordinário':'Depende do caso','Crédito PIS/COFINS':regime==='real'&&vend==='pf'?'Em regra, sem crédito ordinário na compra de PF':'Depende do regime e da operação','NCM':ncm||'Não informado — obrigatório identificar antes da emissão'};
+if(valor!=='')dados['Valor informado']=fmt(Number(valor));
+$('intro').textContent='Análise preliminar para '+produto+' — não substitui validação fiscal.';
+$('resumo').innerHTML=rows(dados);
+$('observacoes').replaceChildren(...obs.map(x=>{const p=document.createElement('p');p.className=x.startsWith('Sem NCM')?'warn':'ok';p.textContent=x;return p}));
+texto=Object.entries(dados).map(([k,v])=>k+': '+v).join('\n')+'\n\nRessalvas:\n'+obs.map(x=>'• '+x).join('\n')+'\n\nReferências: RCTE/GO, Decreto 4.852/1997, arts. 159 e 162; Leis 10.637/2002 e 10.833/2003, art. 3º, § 3º.';
+$('result').style.display='block';$('result').scrollIntoView({behavior:'smooth',block:'start'});
+});
+$('copiar').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(texto);$('copiar').textContent='Copiado!';}catch{alert('Selecione o texto do resultado para copiar.')}});
+$('pdf').addEventListener('click',()=>window.print());
+$('form').dispatchEvent(new Event('submit',{cancelable:true}));
+</script></body></html>
