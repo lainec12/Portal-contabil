@@ -5,7 +5,7 @@
 <section class="panel hidden" id="output"><div class="row" style="justify-content:space-between"><div><h2>Demonstrativo mensal</h2><div id="empresa" class="sub"></div></div><div class="row actions"><button class="btn ghost" id="csv">Exportar CSV</button><button class="btn" id="print">Salvar em PDF / imprimir</button></div></div>
 <div id="warning" class="warning hidden"></div><div class="kpis"><div class="kpi">Serviços válidos<strong id="total"></strong></div><div class="kpi">ISS sem retenção<strong id="issOwn"></strong></div><div class="kpi">ISS retido<strong id="issRet"></strong></div><div class="kpi">Notas válidas<strong id="valid"></strong></div><div class="kpi">Notas anuladas<strong id="void"></strong></div></div><div class="scroll" style="margin-top:18px"><table><thead><tr><th>Competência (emissão)</th><th class="num">Notas válidas</th><th class="num">Serviços prestados</th><th class="num">Notas anuladas</th><th class="num">Valor anulado</th><th class="num">ISS sem retenção</th><th class="num">ISS retido</th><th class="num">ISS total</th></tr></thead><tbody id="rows"></tbody><tfoot id="foot"></tfoot></table></div>
 <p class="muted">Critério: soma da coluna Valor Doc. das notas válidas (Exigível ou Operação tributária), agrupadas pelo mês da data de emissão. Notas com situação Anulada são exibidas à parte e excluídas do faturamento. Confira a competência real caso seja diferente da data de emissão.</p>
-<h3>Conferência de alíquota e ISS por nota</h3><p class="muted">O cálculo usa a base tributável identificada no livro; se não estiver disponível, a nota fica como "Não conferida". Informe uma alíquota alternativa apenas para simulação. Nunca sobrescrevemos o documento original.</p><div class="row actions"><label>Alíquota para notas com 0%: <input id="zeroRate" type="number" min="0" max="5" step="0.01" placeholder="Ex.: 5,00" style="width:110px;padding:9px;border:1px solid #aaa;border-radius:8px"> %</label><button class="btn ghost" id="recalc" type="button">Recalcular</button></div><div class="scroll"><table><thead><tr><th>Nota</th><th>Emissão</th><th class="num">Base ISS</th><th class="num">Alíquota original</th><th class="num">ISS registrado</th><th class="num">ISS calculado</th><th class="num">Diferença</th><th>Situação</th></tr></thead><tbody id="auditRows"></tbody></table></div><p id="auditTotal" class="muted"></p><h3>Notas anuladas identificadas</h3><div class="scroll"><table><thead><tr><th>Emissão</th><th>Número</th><th class="num">Valor</th></tr></thead><tbody id="canceladas"></tbody></table></div></section></main><footer>Fiscora • Conferência auxiliar — valide os totais com a escrituração antes de declarar.</footer>
+<h3>Conferência de alíquota e ISS por nota</h3><p class="muted">O cálculo usa a base tributável identificada no livro; se não estiver disponível, a nota fica como "Não conferida". Informe uma alíquota alternativa apenas para simulação. Nunca sobrescrevemos o documento original.</p><div class="row actions"><span>Notas com alíquota 0% ou não identificada terão um campo individual de simulação na própria linha.</span><button class="btn ghost" id="recalc" type="button">Recalcular</button></div><div class="scroll"><table><thead><tr><th>Nota</th><th>Emissão</th><th class="num">Base ISS</th><th class="num">Alíquota original</th><th>Alíquota simulada (por nota)</th><th class="num">ISS registrado</th><th class="num">ISS calculado</th><th class="num">Diferença</th><th>Situação</th></tr></thead><tbody id="auditRows"></tbody></table></div><p id="auditTotal" class="muted"></p><h3>Notas anuladas identificadas</h3><div class="scroll"><table><thead><tr><th>Emissão</th><th>Número</th><th class="num">Valor</th></tr></thead><tbody id="canceladas"></tbody></table></div></section></main><footer>Fiscora • Conferência auxiliar — valide os totais com a escrituração antes de declarar.</footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 (function(){
@@ -164,24 +164,42 @@ $('file').addEventListener('change',async e=>{
   renderAudit();$('output').classList.remove('hidden');
  }catch(err){$('status').textContent='Falha na validação: '+err.message; $('audit').classList.remove('hidden');$('audit').textContent='Não foram gerados valores aproveitáveis. Informe o portal de origem ou disponibilize um exportador em CSV/XLSX.'}
 });
+const manualRates=new Map();
 function renderAudit(){
  const body=$('auditRows');body.replaceChildren();
- const manual=Number(String($('zeroRate').value||'').replace(',','.'));
- const useManual=$('zeroRate').value.trim()!==''&&Number.isFinite(manual)&&manual>=0&&manual<=5;
- let checked=0,alerts=0,calculated=0,recorded=0;
+ let checked=0,alerts=0,calculated=0,recorded=0,unknown=0,zeroes=0;
  for(const n of individual){
   const row=document.createElement('tr');
+  const id=n.date+'|'+n.num;
   const original=n.rate;
-  const applicable=original===0&&useManual?manual:original;
-  const complete=n.base!=null&&n.tax!=null&&Number.isFinite(applicable)&&applicable>=0&&applicable<=5;
+  const hasManual=manualRates.has(id);
+  const override=hasManual?manualRates.get(id):null;
+  const applicable=hasManual?override:original;
+  const noRate=original===null||original===0;
+  if(noRate)zeroes++;
+  const baseKnown=n.base!==null&&n.base!==undefined;
+  const taxKnown=n.tax!==null&&n.tax!==undefined;
+  const complete=baseKnown&&taxKnown&&Number.isFinite(applicable)&&applicable>=0&&applicable<=5&&!(!hasManual&&noRate);
   const expected=complete?Math.round(n.base*applicable/100):null;
   const delta=complete?expected-n.tax:null;
-  const status=complete?(original===0&&useManual?'Simulação: '+(delta===0?'confere':'diferença'):delta===0?'Confere':'Divergência'):'Não conferida';
-  if(complete){checked++;calculated+=expected;recorded+=n.tax;if(delta!==0)alerts++}
-  [n.num,n.date,n.base==null?'—':money(n.base),original==null?'—':original.toLocaleString('pt-BR')+'%',n.tax==null?'—':money(n.tax),expected==null?'—':money(expected),delta==null?'—':money(delta),status].forEach((v,i)=>cell(row,v,i>=2&&i<=6?'num':''));
-  body.append(row)
+  const status=complete?(hasManual?'Simulação — '+(delta===0?'confere':'diferença'):delta===0?'Confere':'Divergência'):(noRate?'Alíquota zero/ausente — conferir fundamento':'Não conferida');
+  if(complete){checked++;calculated+=expected;recorded+=n.tax;if(delta!==0)alerts++}else unknown++;
+  [n.num,n.date,baseKnown?money(n.base):'—',original==null?'—':original.toLocaleString('pt-BR')+'%'].forEach((v,i)=>cell(row,v,i>=2?'num':''));
+  const edit=document.createElement('td');
+  if(noRate){
+   const input=document.createElement('input');input.type='number';input.min='0';input.max='5';input.step='0.01';input.placeholder='Por nota';input.value=hasManual?String(override):'';
+   input.style.width='98px';input.style.padding='6px';input.setAttribute('aria-label','Alíquota simulada da nota '+n.num);
+   input.addEventListener('change',()=>{
+    const v=input.value.trim();if(!v){manualRates.delete(id)}
+    else{const value=Number(v);if(!Number.isFinite(value)||value<0||value>5){alert('Informe alíquota entre 0% e 5% para esta nota.');return}manualRates.set(id,value)}
+    renderAudit()
+   });edit.append(input);
+  }else edit.textContent='—';
+  row.append(edit);
+  [taxKnown?money(n.tax):'—',expected===null?'—':money(expected),delta===null?'—':money(delta),status].forEach((v,i)=>cell(row,v,i<3?'num':''));
+  body.append(row);
  }
- $('auditTotal').textContent='Conferidas: '+checked+' de '+individual.length+' notas • Divergências: '+alerts+' • ISS registrado nas notas conferidas: '+money(recorded)+' • ISS recalculado: '+money(calculated)+'. A simulação não modifica as notas nem o ISS oficial do quadro-resumo.';
+ $('auditTotal').textContent='Notas com cálculo conferido: '+checked+' de '+individual.length+' • Diferenças: '+alerts+' • Pendente de análise: '+unknown+' • Alíquotas zero/ausentes: '+zeroes+'. ISS informado nas conferidas: '+money(recorded)+'; ISS recalculado: '+money(calculated)+'. Simulações não alteram o livro original.';
 }
 $('recalc').addEventListener('click',renderAudit);
 $('print').addEventListener('click',()=>{if(!$('print').disabled)window.print()});
