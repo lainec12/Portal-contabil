@@ -27,8 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p _site
-          cp -a ./. _site/
-          rm -rf _site/.git _site/.github _site/_site
+          rsync -a --exclude='_site/' --exclude='.git/' --exclude='.github/' ./ _site/
           test -f payload-site-9a50c35200/site-000.txt
           cat payload-site-9a50c35200/site-*.txt > _site/index.html
           test -s _site/index.html
