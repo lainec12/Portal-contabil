@@ -44,22 +44,46 @@ export function company(data) {
     wholesale:activities.some(a=>a.kind==='Atacado'),category:trade.length>1?'Mista: '+trade.join(' + '):trade[0]||'Outras atividades',
     checked:new Date().toISOString(),source:'BrasilAPI / Minha Receita'};
 }
-export async function lookup(id, signal, fetcher = fetch) {
-  const timeout = AbortSignal.timeout(20000);
-  const response = await fetcher('https://brasilapi.com.br/api/cnpj/v1/'+encodeURIComponent(id),
-    {signal:signal?AbortSignal.any([signal,timeout]):timeout,credentials:'omit',referrerPolicy:'no-referrer'});
-  if (!response.ok) {
-    const message = response.status===429?'Limite da fonte atingido. Aguarde antes de tentar novamente.':response.status===404?'CNPJ não localizado na fonte.':response.status>=500?'Fonte temporariamente indisponível.':'Consulta recusada pela fonte (HTTP '+response.status+').';
-    const error = new Error(message); error.status = response.status; throw error;
-  }
-  const data = await response.json();
-  if (normalizeCnpj(data.cnpj)!==id) throw new Error('A fonte retornou outro CNPJ; resposta descartada.');
-  return company(data);
+const CNPJ_CACHE_KEY='fiscora.cnpj.cache.v1';
+const MAX_CACHE=150;
+function readCnpjCache(){
+ try{const v=JSON.parse(localStorage.getItem(CNPJ_CACHE_KEY)||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{}}catch(_){return {}}
+}
+export function clearCnpjCache(){try{localStorage.removeItem(CNPJ_CACHE_KEY)}catch(_){}}
+function saveCnpjCache(id,record){
+ try{const cache=readCnpjCache();cache[id]={...record,checked:new Date().toISOString()};
+ const sorted=Object.entries(cache).sort((a,b)=>String(b[1].checked||'').localeCompare(String(a[1].checked||''))).slice(0,MAX_CACHE);
+ localStorage.setItem(CNPJ_CACHE_KEY,JSON.stringify(Object.fromEntries(sorted)))}catch(_) {/* privacidade/modo privado */ }
+}
+function cachedCnpj(id){
+ const r=readCnpjCache()[id];
+ return r&&r.name&&Array.isArray(r.activities)?{...r,source:'Cópia local de '+(r.source||'consulta anterior'),state:'Cache antigo — reconfirmar',error:'Dados salvos em '+new Date(r.checked).toLocaleString('pt-BR')+'; a situação cadastral pode ter mudado.'}:null;
+}
+async function requestCnpj(url,id,signal,fetcher,source){
+ const timeout=AbortSignal.timeout(16000);
+ const response=await fetcher(url,{signal:signal?AbortSignal.any([signal,timeout]):timeout,credentials:'omit',referrerPolicy:'no-referrer'});
+ if(!response.ok){const error=new Error(response.status===429?'Fonte temporariamente limitada (HTTP 429).':response.status===404?'CNPJ não localizado.':'Falha na consulta '+source+' (HTTP '+response.status+').');error.status=response.status;throw error}
+ const data=await response.json();
+ if(normalizeCnpj(data.cnpj)!==id)throw new Error('Resposta divergente de CNPJ pela fonte '+source);
+ const result=company(data);result.source=source;return result;
+}
+export async function lookup(id, signal, fetcher=fetch, options={}){
+ const save=options.cache===true;
+ let lastError;
+ for(const [url,source] of [
+  ['https://brasilapi.com.br/api/cnpj/v1/'+encodeURIComponent(id),'BrasilAPI'],
+  ['https://minhareceita.org/'+encodeURIComponent(id),'Minha Receita (alternativa)']
+ ]){
+  try{const result=await requestCnpj(url,id,signal,fetcher,source);if(save)saveCnpjCache(id,result);return result}
+  catch(e){lastError=e;if(signal?.aborted)throw e;}
+ }
+ if(save){const cached=cachedCnpj(id);if(cached)return cached}
+ throw lastError||new Error('Nenhuma fonte cadastral disponível.');
 }
 const escapeHtml = v => String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function exportRows(rows) {
   return rows.map(r=>({'CNPJ':r.cnpj,'Consulta':r.state,'Razão social':r.name||'','Situação':r.status||'','Cidade':r.city||'','UF':r.uf||'',
-    'Classificação':r.category||'Não concluída','Possui atacado':r.state==='Consultado'?(r.wholesale?'Sim':'Não'):'Não concluído',
+    'Classificação':r.category||'Não concluída','Possui atacado':['Consultado','Cache antigo — reconfirmar'].includes(r.state)?(r.wholesale?'Sim':'Não'):'Não concluído',
     'CNAE principal':(r.activities||[]).filter(a=>a.origin==='Principal').map(a=>a.codigo+' — '+a.descricao+' ['+a.kind+']').join('; '),
     'CNAEs secundários':(r.activities||[]).filter(a=>a.origin==='Secundário').map(a=>a.codigo+' — '+a.descricao+' ['+a.kind+']').join('; '),
     'Consultado em (UTC)':r.checked||'','Fonte':r.source||'','Erro':r.error||'',
@@ -81,8 +105,10 @@ async function mount() {
   <div class="card"><label for="cc-input"><b>CNPJs (um por linha, separados por vírgula ou ponto e vírgula)</b></label><textarea id="cc-input" class="field" rows="5" style="width:100%" placeholder="00.000.000/0001-91"></textarea>
   <div class="grid grid-2"><div><label for="cc-file">Importar XLSX ou CSV (até 5 MB)</label><input id="cc-file" class="field" type="file" accept=".xlsx,.csv"><p class="fine">Use uma coluna chamada CNPJ, como texto, preservando zeros iniciais. Se houver várias colunas, escolha abaixo.</p></div><div id="cc-columns" hidden><label for="cc-sheet">Aba da planilha</label><select id="cc-sheet" class="field"></select><label for="cc-column">Coluna de CNPJ</label><select id="cc-column" class="field"></select><button id="cc-use" class="field">Usar coluna</button></div></div>
   <p class="fine">Até 100 CNPJs por lote, sem truncar excedentes. Consulta sequencial, intervalo mínimo de 2 segundos e timeout de 20 segundos. O provedor pode impor outros limites e ter dados defasados. Não é certidão da Receita Federal.</p>
-  <label><input type="checkbox" id="cc-consent"> Autorizo enviar os CNPJs à BrasilAPI / Minha Receita para consultar dados públicos.</label>
-  <p class="fine">A planilha é lida neste navegador; somente cada CNPJ válido é enviado à fonte. Resultados ficam em memória nesta aba e não são salvos pelo módulo. O provedor recebe o CNPJ e o IP da conexão. Use Limpar ao terminar; arquivos exportados permanecem no seu aparelho.</p>
+  <label><input type="checkbox" id="cc-consent"> Autorizo consultas à BrasilAPI e, se necessário, à Minha Receita (fonte alternativa).</label>
+  <p class="fine">A planilha é lida neste navegador; somente cada CNPJ válido é enviado à fonte. Por padrão, resultados ficam apenas em memória nesta aba. O provedor recebe o CNPJ e o IP da conexão. Use Limpar ao terminar; arquivos exportados permanecem no seu aparelho.</p>
+  <label><input type="checkbox" id="cc-cache"> Salvar as consultas neste navegador para uso quando as APIs falharem (opcional; até 150 empresas). Dados antigos não significam cadastro atual.</label>
+  <button class="field" id="cc-cache-clear" type="button">Apagar consultas salvas</button>
   <div class="button-row"><button id="cc-validate" class="field">Validar e remover duplicatas</button><button id="cc-run" class="primary">Consultar CNPJs</button><button id="cc-stop" class="field" disabled>Interromper</button><button id="cc-clear" class="field">Limpar</button><button id="cc-export" class="field">Exportar Excel (filtro atual)</button></div>
   <p id="cc-progress" role="status" aria-live="polite">Aguardando CNPJs.</p>
   <div class="notice"><b>Análise cadastral, sem conclusão fiscal:</b> possuir CNAE atacadista não comprova elegibilidade a incentivo fiscal em Goiás. Confira os requisitos legais e a operação efetiva.</div>
@@ -124,12 +150,13 @@ async function mount() {
         if(delay)await new Promise(resolve=>{const t=setTimeout(resolve,delay);signal.addEventListener('abort',()=>{clearTimeout(t);resolve();},{once:true});});
         if(signal.aborted)break;
         r.state='Consultando';render();lastRequest=Date.now();
-        try {Object.assign(r,await lookup(r.cnpj,signal),{state:'Consultado',error:''});}
+        try {{const found=await lookup(r.cnpj,signal,fetch,{cache:$('cache').checked});Object.assign(r,found,{state:found.state||'Consultado',error:found.error||''});}}
         catch(e){r.state=signal.aborted?'Pendente':'Erro';r.error=signal.aborted?'Consulta interrompida.':e.name==='TimeoutError'?'Tempo de consulta esgotado.':e.message||'Falha de conexão ou bloqueio do navegador.';if(e.status===429){note(e.message);controller.abort();}}
-        render();note(rows.filter(x=>['Consultado','Erro','Inválido'].includes(x.state)).length+'/'+rows.length+' processados; '+duplicates+' duplicatas removidas.');
+        render();note(rows.filter(x=>['Consultado','Cache antigo — reconfirmar','Erro','Inválido'].includes(x.state)).length+'/'+rows.length+' processados; '+duplicates+' duplicatas removidas.');
       }
     } finally {lock(false);note((signal.aborted?'Interrompido. ':'Concluído. ')+rows.filter(r=>r.state==='Consultado').length+' consultados; '+rows.filter(r=>r.state==='Erro').length+' erros; '+rows.filter(r=>r.state==='Pendente').length+' pendentes; '+rows.filter(r=>r.state==='Inválido').length+' inválidos.');controller=null;}
   };
+  $('cache-clear').onclick=()=>{clearCnpjCache();note('Cópias de CNPJ apagadas deste navegador. Os resultados exibidos nesta sessão permanecem até clicar em Limpar.')};
   $('stop').onclick=()=>controller?.abort();
   $('clear').onclick=()=>{rows=[];book=null;$('input').value='';$('file').value='';$('consent').checked=false;$('columns').hidden=true;render();note('Dados removidos da memória desta ferramenta.');};
   for(const id of ['filter','status','search'])$(id).oninput=render;
