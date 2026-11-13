@@ -57,47 +57,44 @@ function extractSummary(pages){
  return {found,issues,recognizedMonths:[...recognizedMonths]};
 }
 function extractDetail(pages){
- let out=[],issues=[],seen=new Set(),withHeader=0,rawDates=0;
+ const out=[],issues=[],seen=new Set();
+ // O modelo Nota Control imprime o cabeçalho apenas na primeira página.
+ // As posições são relativas a 595 pontos de largura (normalizadas por rowsFromContent).
+ // Em modelos desconhecidos a ferramenta NÃO deve adivinhar colunas.
+ const isNotaControl=pages.some(page=>page.some(row=>/nota\s+control/i.test(norm(row.text)))) &&
+   pages.some(page=>page.some(row=>/valor\s+doc/i.test(norm(row.text)) && /aliq|al[ií]q/i.test(norm(row.text))));
+ if(!isNotaControl)return {out,issues:['Modelo diferente do Nota Control: mapeamento de colunas não validado.'],recognized:false,rawDates:0};
+ const moneyCell=(row,lo,hi)=>firstMoneyAfter(row.items,lo,hi);
+ let rawDates=0;
  for(let pi=0;pi<pages.length;pi++){
-  const rows=pages[pi];
-  const header=rows.find(r=>/valor\s+(?:doc|servi|nota|total)/i.test(norm(r.text))&&/emiss|documento|tomador|numero/i.test(norm(r.text)));
-  // No layout Nota Control, Valor Doc. é a coluna próxima ao x 307; os campos ISS estão à direita.
-  // Em outros portais o cabeçalho deve ser detectável. Sem ele, não estimar faturamento.
-  if(!header){issues.push('Página '+(pi+1)+': sem cabeçalho de coluna de valores de documentos reconhecido');continue}
-  withHeader++;
-  const labels=header.items;
-  let c=labels.find(i=>/^(valor)$/i.test(i.txt)&&labels.some(j=>j.x>i.x&&j.x<i.x+55&&/doc|servi|nota|total/i.test(norm(j.txt))));
-  if(!c)c=labels.find(i=>/valor\s+(doc|servi|nota|total)/i.test(norm(i.txt)));
-  if(!c){issues.push('Página '+(pi+1)+': não foi possível localizar a coluna Valor Doc.');continue}
-  const startX=c.x-14;
-  const more=labels.filter(i=>i.x>c.x+28&&/valor\s+trib|base|aliq|iss|imposto|retenc|total\s+iss/i.test(norm(i.txt)));
-  // Na tabela de Goiânia, Valor Trib. começa em x 361; usa limite anterior a essa coluna.
-  let endX=more.length?Math.min(...more.map(i=>i.x))-5:c.x+70;
-  if(endX<=startX+18)endX=c.x+70;
-  for(const row of rows){
-   const dated=row.items.find(i=>/^\d{2}\/\d{2}\/20\d{2}$/.test(i.txt)&&i.x<170);
-   if(!dated)continue;
-   const statusMatch=norm(row.text).match(/\b(anulada|anulado|cancelada|cancelado|exigivel|operacao\s+tribut|tributavel)\b/);
-   if(!statusMatch)continue;
+  for(const row of pages[pi]){
+   const at=row.items.find(i=>i.x>=18&&i.x<85&&/^\d{2}\/\d{2}\/20\d{2}$/.test(i.txt));
+   if(!at)continue;
+   // Evitar datas dos campos do cabeçalho administrativo (nº da nota é obrigatório).
+   const number=row.items.find(i=>i.x>=136&&i.x<166&&/^\d{1,9}$/.test(i.txt));
+   if(!number)continue;
+   const statusText=row.items.filter(i=>i.x>=228&&i.x<310).map(i=>i.txt).join(' ');
+   const nstatus=norm(statusText);
+   if(!/anulad|cancelad|exigivel|operacao\s+tribut|tributavel/.test(nstatus)){issues.push('Página '+(pi+1)+', nota '+number.txt+': situação não reconhecida');continue}
    rawDates++;
-   const amount=firstMoneyAfter(row.items,startX,endX);
-   if(amount===null){issues.push('Página '+(pi+1)+', '+dated.txt+': valor não localizado na coluna Valor Doc.');continue}
-   const status=/anulad|cancelad/.test(statusMatch[1])?'Anulada':'Exigível';
-   const pieces=row.items.filter(i=>i.x>dated.x+55&&i.x<startX);
-   const num=pieces.find(i=>/^\d{1,8}$/.test(i.txt))?.txt||'?';
-   const id=pi+'|'+dated.txt+'|'+num+'|'+status+'|'+amount;
-   if(seen.has(id)){issues.push('Possível nota duplicada '+id);continue}seen.add(id);
-   const parts=dated.txt.split('/');
-   const aliqHeader=labels.find(i=>/aliq|al[ií]q/i.test(norm(i.txt)));
-   const impHeader=labels.find(i=>/valor\s+imp|iss\s+devido|imposto/i.test(norm(i.txt)));
-   const baseHeader=labels.find(i=>/valor\s+trib|base\s+calc/i.test(norm(i.txt)));
-   const rateField=aliqHeader?row.items.filter(i=>i.x>=aliqHeader.x-10&&i.x<aliqHeader.x+45).map(i=>i.txt).find(t=>/^\d{1,2},\d{1,4}$/.test(t)):null;
-   const taxField=impHeader?firstMoneyAfter(row.items,impHeader.x-10,impHeader.x+95):null;
-   const base=baseHeader?firstMoneyAfter(row.items,baseHeader.x-10,baseHeader.x+80):null;
-   out.push({date:dated.txt,key:parts[2]+'-'+parts[1],num,status,cents:amount,base,rate:rateField===null?null:Number(rateField.replace(',','.')),tax:taxField});
+   const cents=moneyCell(row,305,357),base=moneyCell(row,357,406),tax=moneyCell(row,510,593);
+   const rateText=row.items.filter(i=>i.x>=405&&i.x<448).map(i=>i.txt).join(' ');
+   const rateMatch=rateText.match(/(?:^|\s)(\d{1,2}[,.]\d{1,4})(?:\s|$)/);
+   const rate=rateMatch?Number(rateMatch[1].replace(',','.')):null;
+   const retainedText=norm(row.items.filter(i=>i.x>=444&&i.x<483).map(i=>i.txt).join(' '));
+   const ret=retainedText.includes('sim')?true:retainedText.includes('nao')?false:null;
+   if(cents===null||base===null||tax===null||rate===null){issues.push('Página '+(pi+1)+', nota '+number.txt+': valor, base, imposto ou alíquota não identificados; não conciliada');continue}
+   const status=/anulad|cancelad/.test(nstatus)?'Anulada':/operacao/.test(nstatus)?'Operação tributária':'Exigível';
+   const key=at.txt.slice(6)+'-'+at.txt.slice(3,5);
+   const id=number.txt+'|'+at.txt;
+   if(seen.has(id)){issues.push('Nota repetida '+number.txt+' na página '+(pi+1));continue}
+   seen.add(id);
+   out.push({num:number.txt,date:at.txt,key,status,cents,base,rate,tax,retained:ret,issOwn:status==='Anulada'?0:ret===false?tax:0,issRet:status==='Anulada'?0:ret===true?tax:0,
+      sourcePage:pi+1});
   }
  }
- return {out,issues,withHeader,rawDates};
+ if(rawDates===0)issues.push('Nenhuma nota com campos completos reconhecida.');
+ return {out,issues,recognized:true,rawDates};
 }
 function tally(rows){
  const map=new Map();
@@ -146,14 +143,15 @@ $('file').addEventListener('change',async e=>{
   }else{
     throw Error('Não foi possível validar todas as linhas/colunas do PDF. Nenhum total será mostrado. '+dr.issues.slice(0,3).join(' | '));
   }
+  if(dr.recognized && dr.issues.length)notes.push('Atenção: notas não conciliadas: '+dr.issues.length);
   if(!summary.length)throw Error('Nenhum valor de serviços validado. Revise o leiaute do arquivo.');
   const total=summary.reduce((n,x)=>n+x.total,0),voidTotal=summary.reduce((n,x)=>n+x.voidTotal,0),issOwn=summary.reduce((n,x)=>n+x.issOwn,0),issRet=summary.reduce((n,x)=>n+x.issRet,0),issAvailable=summary.every(x=>!x.issMissing);
-  const validCount=dr.out.length?dr.out.filter(x=>x.status!=='Anulada').length:null;
-  const voidCount=dr.out.length?dr.out.filter(x=>x.status==='Anulada').length:null;
+  const validCount=dr.recognized&&!dr.issues.length?dr.out.filter(x=>x.status!=='Anulada').length:null;
+  const voidCount=dr.recognized&&!dr.issues.length?dr.out.filter(x=>x.status==='Anulada').length:null;
   $('empresa').textContent=(company||file.name)+' • '+(sr.found.length?'fonte: quadros-resumo':'fonte: notas individuais');
   $('total').textContent=money(total);$('issOwn').textContent=issAvailable?money(issOwn):'Não identificado';$('issRet').textContent=issAvailable?money(issRet):'Não identificado';$('valid').textContent=validCount===null?'—':validCount;$('void').textContent=voidCount===null?'—':voidCount;
   $('rows').replaceChildren();
-  for(const m of summary){const tr=document.createElement('tr');const d=tally(dr.out).find(x=>x.key===m.key);[month(m.key),d?d.valid:'—',money(m.total),d?d.void:'—',money(m.voidTotal),m.issMissing?'—':money(m.issOwn),m.issMissing?'—':money(m.issRet),m.issMissing?'—':money(m.issOwn+m.issRet)].forEach((v,i)=>cell(tr,v,i?'num':''));$('rows').append(tr)}
+  for(const m of summary){const tr=document.createElement('tr');const d=dr.recognized&&!dr.issues.length?tally(dr.out).find(x=>x.key===m.key):null;[month(m.key),d?d.valid:'—',money(m.total),d?d.void:'—',money(m.voidTotal),m.issMissing?'—':money(m.issOwn),m.issMissing?'—':money(m.issRet),m.issMissing?'—':money(m.issOwn+m.issRet)].forEach((v,i)=>cell(tr,v,i?'num':''));$('rows').append(tr)}
   $('foot').replaceChildren();const tr=document.createElement('tr');['TOTAL',validCount===null?'—':validCount,money(total),voidCount===null?'—':voidCount,money(voidTotal),issAvailable?money(issOwn):'—',issAvailable?money(issRet):'—',issAvailable?money(issOwn+issRet):'—'].forEach((v,i)=>{const th=document.createElement('th');th.textContent=v;th.className=i?'num':'';tr.append(th)});$('foot').append(tr);
   $('canceladas').replaceChildren();for(const n of dr.out.filter(x=>x.status==='Anulada')){const row=document.createElement('tr');[n.date,n.num,money(n.cents)].forEach((v,i)=>cell(row,v,i===2?'num':''));$('canceladas').append(row)}
   if(!issAvailable)notes.push('ISS não identificado em todos os quadros; colunas de ISS mantidas em branco.');
