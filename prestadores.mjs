@@ -2,10 +2,17 @@ import {resolveMunicipality,loadMunicipalities} from './municipios.mjs?v=2026111
 
 export async function consultarPrestador(cnpj,catalog,request=fetch){
   if(!/^[A-Z0-9]{12}\d{2}$/.test(cnpj)) throw new Error('A consulta exige um CNPJ de estabelecimento.');
-  const response=await request('https://brasilapi.com.br/api/cnpj/v1/'+cnpj,{signal:AbortSignal.timeout(15000),referrerPolicy:'no-referrer',credentials:'omit'});
-  if(!response.ok) throw Object.assign(new Error(response.status===404?'CNPJ não localizado.':'Consulta indisponível. Tente novamente.'),{status:response.status});
-  const data=await response.json();
-  if(String(data.cnpj||'').replace(/[./-]/g,'').toUpperCase()!==cnpj) throw new Error('O cadastro retornado não corresponde ao CNPJ.');
+  let data=null,error=null;
+  for(const url of ['https://brasilapi.com.br/api/cnpj/v1/'+cnpj,'https://minhareceita.org/'+cnpj]){
+    try{
+      const response=await request(url,{signal:AbortSignal.timeout(15000),referrerPolicy:'no-referrer',credentials:'omit'});
+      if(!response.ok)throw Object.assign(new Error(response.status===404?'CNPJ não localizado.':'Consulta indisponível (HTTP '+response.status+').'),{status:response.status});
+      const candidate=await response.json();
+      if(String(candidate.cnpj||'').replace(/[./-]/g,'').toUpperCase()!==cnpj)throw new Error('Resposta de outro CNPJ rejeitada.');
+      data=candidate;break;
+    }catch(e){error=e}
+  }
+  if(!data)throw error||new Error('Nenhuma fonte de CNPJ disponível.');
   const found=resolveMunicipality({municipality:data.codigo_municipio_ibge,city:data.municipio,uf:data.uf},catalog);
   if(!found.code || (data.codigo_municipio_ibge && String(data.codigo_municipio_ibge)!==found.code)) throw new Error('Município cadastral sem correspondência segura na tabela IBGE.');
   return found;
@@ -21,7 +28,7 @@ export function mostrarPrestadores(panel,notes,automatic,fillMissing){
   }
   if(!groups.size)return;
   const intro=document.createElement('p');
-  intro.textContent='Município dos prestadores. Ao consultar, somente o CNPJ é enviado à BrasilAPI. Revise as divergências antes de exportar o 0150.';
+  intro.textContent='Município dos prestadores. Ao consultar, somente o CNPJ é enviado à BrasilAPI ou, se falhar, à Minha Receita. Revise as divergências antes de exportar o 0150.';
   panel.append(intro);
   const queue=[];
   for(const {provider,codes} of groups.values()){
