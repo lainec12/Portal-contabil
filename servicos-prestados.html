@@ -81,7 +81,7 @@ function extractDetail(pages){
    const rateText=row.items.filter(i=>i.x>=405&&i.x<448).map(i=>i.txt).join(' ');
    const rateMatch=rateText.match(/(?:^|\s)(\d{1,2}[,.]\d{1,4})(?:\s|$)/);
    const rate=rateMatch?Number(rateMatch[1].replace(',','.')):null;
-   const retainedText=norm(row.items.filter(i=>i.x>=444&&i.x<483).map(i=>i.txt).join(' '));
+   const retainedText=norm(row.items.filter(i=>i.x>=439&&i.x<470).map(i=>i.txt).join(' '));
    const ret=retainedText.includes('sim')?true:retainedText.includes('nao')?false:null;
    if(cents===null||base===null||tax===null||rate===null){issues.push('Página '+(pi+1)+', nota '+number.txt+': valor, base, imposto ou alíquota não identificados; não conciliada');continue}
    const status=/anulad|cancelad/.test(nstatus)?'Anulada':/operacao/.test(nstatus)?'Operação tributária':'Exigível';
