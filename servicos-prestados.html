@@ -31,13 +31,19 @@ function firstMoneyAfter(items,minX,maxX){
  return matches.length?brnum(matches[0][0]):null;
 }
 function extractSummary(pages){
- let key=null,found=[],seen=new Set(),issues=[],recognizedMonths=new Set();
+ let key=null,found=[],seen=new Set(),issues=[],recognizedMonths=new Set(),periodRows=[],inPeriod=false;
  const currencyPattern=/(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*|\d+),\d{2}\b/g;
  for(let pi=0;pi<pages.length;pi++){
   for(const row of pages[pi]){
    const normalized=norm(row.text);
+   if(/quadro\s+resumo\s*[-–]\s*total\s+periodo\s+informado/.test(normalized)){inPeriod=true;key=null;continue}
+   const periodState=inPeriod&&normalized.match(/^\s*(anulada|exigivel|operacao\s+tribut\w*)/);
+   if(periodState){
+      const vals=[...row.text.matchAll(currencyPattern)].map(m=>brnum(m[0]));
+      if(vals.length>=5 && vals.every(Number.isFinite)){periodRows.push({status:/anulad/.test(periodState[1])?'Anulada':/operacao/.test(periodState[1])?'Operação tributária':'Exigível',cents:vals[0],issOwn:vals[2],issRet:vals[4]})}
+   }
    const heading=normalized.match(/quadro\s+resumo\s+(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s*\/\s*(20\d{2})/);
-   if(heading){key=heading[2]+'-'+meses[heading[1]];recognizedMonths.add(key);continue}
+   if(heading){inPeriod=false;key=heading[2]+'-'+meses[heading[1]];recognizedMonths.add(key);continue}
    if(!key)continue;
    const state=normalized.match(/^\s*(anulada|anulado|cancelada|cancelado|exigivel|operacao\s+tribut\w*|tributavel|normal|valida)/);
    if(!state)continue;
@@ -54,7 +60,7 @@ function extractSummary(pages){
   }
  }
  for(const m of recognizedMonths)if(!found.some(r=>r.key===m))issues.push('Sem valores reconhecidos em '+m);
- return {found,issues,recognizedMonths:[...recognizedMonths]};
+ return {found,issues,recognizedMonths:[...recognizedMonths],periodRows};
 }
 function extractDetail(pages){
  const out=[],issues=[],seen=new Set();
@@ -117,7 +123,7 @@ function compare(summaryRows,detailRows){
 }
 function cell(tr,x,cls){const td=document.createElement('td');td.textContent=x;if(cls)td.className=cls;tr.append(td)}
 $('file').addEventListener('change',async e=>{
- const file=e.target.files[0];$('output').classList.add('hidden');$('audit').classList.add('hidden');summary=[];entries=[];notes=[];verified=false;individual=[];
+ const file=e.target.files[0];$('output').classList.add('hidden');$('audit').classList.add('hidden');summary=[];entries=[];notes=[];verified=false;individual=[];manualRates.clear();
  if(!file)return;
  $('status').textContent='Lendo '+file.name+'…';
  if(!window.pdfjsLib){$('status').textContent='Biblioteca PDF indisponível. Confira a conexão à internet.';return}
@@ -140,9 +146,17 @@ $('file').addEventListener('change',async e=>{
       const foundMonths=new Set(sr.recognizedMonths);
       const partial=summary.some(m=>!foundMonths.has(m.key)) || sr.issues.length>0;
       const diffs=compare(sr.found,dr.out);
-      if(partial)notes.push('Quadros mensais parcialmente identificados; valores individuais preservados.');
+      const officialValid=sr.periodRows.filter(x=>x.status!=='Anulada').reduce((a,x)=>a+x.cents,0);
+      const officialCanceled=sr.periodRows.filter(x=>x.status==='Anulada').reduce((a,x)=>a+x.cents,0);
+      const detailValid=summary.reduce((a,x)=>a+x.total,0);
+      const detailCanceled=summary.reduce((a,x)=>a+x.voidTotal,0);
+      const officialComplete=sr.periodRows.some(x=>x.status==='Anulada')&&sr.periodRows.some(x=>x.status==='Exigível');
+      const periodMatches=officialComplete&&officialValid===detailValid&&officialCanceled===detailCanceled;
+      if(partial)notes.push('Leitura parcial de quadros mensais; totais apurados das notas individuais.');
       notes.push(...diffs.map(x=>'Quadro mensal divergente: '+x));
-      verified=!partial&&diffs.length===0;
+      if(periodMatches)notes.push('Total individual conciliado com o Quadro Resumo do Período: '+money(detailValid)+'.');
+      else notes.push('Quadro geral do período ainda não conciliado com as notas.');
+      verified=periodMatches&&!partial&&diffs.length===0;
     }else{
       verified=false;notes.push('Notas extraídas, mas quadro-resumo não reconhecido; conferir totais.');
     }
