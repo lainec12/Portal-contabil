@@ -5,7 +5,7 @@
 <section class="panel hidden" id="output"><div class="row" style="justify-content:space-between"><div><h2>Demonstrativo mensal</h2><div id="empresa" class="sub"></div></div><div class="row actions"><button class="btn ghost" id="csv">Exportar CSV</button><button class="btn" id="print">Salvar em PDF / imprimir</button></div></div>
 <div id="warning" class="warning hidden"></div><div class="kpis"><div class="kpi">Serviços válidos<strong id="total"></strong></div><div class="kpi">ISS sem retenção<strong id="issOwn"></strong></div><div class="kpi">ISS retido<strong id="issRet"></strong></div><div class="kpi">Notas válidas<strong id="valid"></strong></div><div class="kpi">Notas anuladas<strong id="void"></strong></div></div><div class="scroll" style="margin-top:18px"><table><thead><tr><th>Competência (emissão)</th><th class="num">Notas válidas</th><th class="num">Serviços prestados</th><th class="num">Notas anuladas</th><th class="num">Valor anulado</th><th class="num">ISS sem retenção</th><th class="num">ISS retido</th><th class="num">ISS total</th></tr></thead><tbody id="rows"></tbody><tfoot id="foot"></tfoot></table></div>
 <p class="muted">Critério: soma da coluna Valor Doc. das notas válidas (Exigível ou Operação tributária), agrupadas pelo mês da data de emissão. Notas com situação Anulada são exibidas à parte e excluídas do faturamento. Confira a competência real caso seja diferente da data de emissão.</p>
-<h3>Notas anuladas identificadas</h3><div class="scroll"><table><thead><tr><th>Emissão</th><th>Número</th><th class="num">Valor</th></tr></thead><tbody id="canceladas"></tbody></table></div></section></main><footer>Fiscora • Conferência auxiliar — valide os totais com a escrituração antes de declarar.</footer>
+<h3>Conferência de alíquota e ISS por nota</h3><p class="muted">O cálculo usa a base tributável identificada no livro; se não estiver disponível, a nota fica como "Não conferida". Informe uma alíquota alternativa apenas para simulação. Nunca sobrescrevemos o documento original.</p><div class="row actions"><label>Alíquota para notas com 0%: <input id="zeroRate" type="number" min="0" max="5" step="0.01" placeholder="Ex.: 5,00" style="width:110px;padding:9px;border:1px solid #aaa;border-radius:8px"> %</label><button class="btn ghost" id="recalc" type="button">Recalcular</button></div><div class="scroll"><table><thead><tr><th>Nota</th><th>Emissão</th><th class="num">Base ISS</th><th class="num">Alíquota original</th><th class="num">ISS registrado</th><th class="num">ISS calculado</th><th class="num">Diferença</th><th>Situação</th></tr></thead><tbody id="auditRows"></tbody></table></div><p id="auditTotal" class="muted"></p><h3>Notas anuladas identificadas</h3><div class="scroll"><table><thead><tr><th>Emissão</th><th>Número</th><th class="num">Valor</th></tr></thead><tbody id="canceladas"></tbody></table></div></section></main><footer>Fiscora • Conferência auxiliar — valide os totais com a escrituração antes de declarar.</footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 (function(){
@@ -15,7 +15,7 @@ const brnum=s=>Math.round(Number(String(s).replace(/[^\d.,]/g,'').replace(/\./g,
 const month=k=>k.slice(5)+'/'+k.slice(0,4);
 const meses={janeiro:'01',fevereiro:'02',marco:'03',abril:'04',maio:'05',junho:'06',julho:'07',agosto:'08',setembro:'09',outubro:'10',novembro:'11',dezembro:'12'};
 const norm=s=>String(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-let summary=[],entries=[],notes=[],verified=false;
+let summary=[],entries=[],notes=[],verified=false,individual=[];
 function rowsFromContent(tc,scale){
  const lines=[];
  for(const t of tc.items){const txt=String(t.str||'').trim();if(!txt)continue;const x=t.transform[4]*scale,y=t.transform[5];
@@ -87,7 +87,14 @@ function extractDetail(pages){
    const num=pieces.find(i=>/^\d{1,8}$/.test(i.txt))?.txt||'?';
    const id=pi+'|'+dated.txt+'|'+num+'|'+status+'|'+amount;
    if(seen.has(id)){issues.push('Possível nota duplicada '+id);continue}seen.add(id);
-   const parts=dated.txt.split('/');out.push({date:dated.txt,key:parts[2]+'-'+parts[1],num,status,cents:amount});
+   const parts=dated.txt.split('/');
+   const aliqHeader=labels.find(i=>/aliq|al[ií]q/i.test(norm(i.txt)));
+   const impHeader=labels.find(i=>/valor\s+imp|iss\s+devido|imposto/i.test(norm(i.txt)));
+   const baseHeader=labels.find(i=>/valor\s+trib|base\s+calc/i.test(norm(i.txt)));
+   const rateField=aliqHeader?row.items.filter(i=>i.x>=aliqHeader.x-10&&i.x<aliqHeader.x+45).map(i=>i.txt).find(t=>/^\d{1,2},\d{1,4}$/.test(t)):null;
+   const taxField=impHeader?firstMoneyAfter(row.items,impHeader.x-10,impHeader.x+95):null;
+   const base=baseHeader?firstMoneyAfter(row.items,baseHeader.x-10,baseHeader.x+80):null;
+   out.push({date:dated.txt,key:parts[2]+'-'+parts[1],num,status,cents:amount,base,rate:rateField===null?null:Number(rateField.replace(',','.')),tax:taxField});
   }
  }
  return {out,issues,withHeader,rawDates};
@@ -113,7 +120,7 @@ function compare(summaryRows,detailRows){
 }
 function cell(tr,x,cls){const td=document.createElement('td');td.textContent=x;if(cls)td.className=cls;tr.append(td)}
 $('file').addEventListener('change',async e=>{
- const file=e.target.files[0];$('output').classList.add('hidden');$('audit').classList.add('hidden');summary=[];entries=[];notes=[];verified=false;
+ const file=e.target.files[0];$('output').classList.add('hidden');$('audit').classList.add('hidden');summary=[];entries=[];notes=[];verified=false;individual=[];
  if(!file)return;
  $('status').textContent='Lendo '+file.name+'…';
  if(!window.pdfjsLib){$('status').textContent='Biblioteca PDF indisponível. Confira a conexão à internet.';return}
@@ -127,7 +134,7 @@ $('file').addEventListener('change',async e=>{
    if(n===1){const c=pages[0].flatMap(r=>r.items).find(i=>/(?:Ltda|Eireli|S\/A)\b/i.test(i.txt));if(c)company=c.txt}
    $('status').textContent='Lidas '+n+' de '+pdf.numPages+' páginas…';
   }
-  const sr=extractSummary(pages),dr=extractDetail(pages);
+  const sr=extractSummary(pages),dr=extractDetail(pages);individual=dr.out.filter(n=>n.status!=='Anulada');
   notes=[...sr.issues,...dr.issues];
   if(sr.found.length){
     entries=sr.found;summary=tally(sr.found);
@@ -155,9 +162,29 @@ $('file').addEventListener('change',async e=>{
   $('warning').textContent=verified?'':'Resultado em conferência: não utilize em declarações sem validar. '+notes.filter(x=>/diverg/i.test(x)).slice(0,5).join(' | ');
   $('csv').disabled=!verified;$('print').disabled=!verified;
   $('status').textContent=(verified?'Conferência concluída':'Conferência parcial')+': '+(sr.found.length?'quadro-resumo de '+summary.length+' meses':'notas individuais')+' • '+pdf.numPages+' páginas • serviços '+money(total)+'.';
-  $('output').classList.remove('hidden');
+  renderAudit();$('output').classList.remove('hidden');
  }catch(err){$('status').textContent='Falha na validação: '+err.message; $('audit').classList.remove('hidden');$('audit').textContent='Não foram gerados valores aproveitáveis. Informe o portal de origem ou disponibilize um exportador em CSV/XLSX.'}
 });
+function renderAudit(){
+ const body=$('auditRows');body.replaceChildren();
+ const manual=Number(String($('zeroRate').value||'').replace(',','.'));
+ const useManual=$('zeroRate').value.trim()!==''&&Number.isFinite(manual)&&manual>=0&&manual<=5;
+ let checked=0,alerts=0,calculated=0,recorded=0;
+ for(const n of individual){
+  const row=document.createElement('tr');
+  const original=n.rate;
+  const applicable=original===0&&useManual?manual:original;
+  const complete=n.base!=null&&n.tax!=null&&Number.isFinite(applicable)&&applicable>=0&&applicable<=5;
+  const expected=complete?Math.round(n.base*applicable/100):null;
+  const delta=complete?expected-n.tax:null;
+  const status=complete?(original===0&&useManual?'Simulação: '+(delta===0?'confere':'diferença'):delta===0?'Confere':'Divergência'):'Não conferida';
+  if(complete){checked++;calculated+=expected;recorded+=n.tax;if(delta!==0)alerts++}
+  [n.num,n.date,n.base==null?'—':money(n.base),original==null?'—':original.toLocaleString('pt-BR')+'%',n.tax==null?'—':money(n.tax),expected==null?'—':money(expected),delta==null?'—':money(delta),status].forEach((v,i)=>cell(row,v,i>=2&&i<=6?'num':''));
+  body.append(row)
+ }
+ $('auditTotal').textContent='Conferidas: '+checked+' de '+individual.length+' notas • Divergências: '+alerts+' • ISS registrado nas notas conferidas: '+money(recorded)+' • ISS recalculado: '+money(calculated)+'. A simulação não modifica as notas nem o ISS oficial do quadro-resumo.';
+}
+$('recalc').addEventListener('click',renderAudit);
 $('print').addEventListener('click',()=>{if(verified)window.print()});
 $('csv').addEventListener('click',()=>{
  if(!verified||!summary.length)return;
