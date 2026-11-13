@@ -120,7 +120,7 @@ async function mount() {
   const note=text=>{$('progress').textContent=text;};
   function visible() {
     const f=$('filter').value,q=$('search').value.toLocaleLowerCase(),s=$('status').value.toLocaleLowerCase();
-    return rows.filter(r=>(!f||(f==='error'?r.state!=='Consultado':f==='none'?r.state==='Consultado'&&!r.wholesale:r.activities?.some(a=>a.kind===f)))&&
+    return rows.filter(r=>(!f||(f==='error'?!['Consultado','Cache antigo — reconfirmar'].includes(r.state):f==='none'?['Consultado','Cache antigo — reconfirmar'].includes(r.state)&&!r.wholesale:r.activities?.some(a=>a.kind===f)))&&
       (!s||(r.status||'').toLocaleLowerCase().includes(s))&&(!q||[r.cnpj,r.name,r.city,r.uf].join(' ').toLocaleLowerCase().includes(q)));
   }
   function render() {
@@ -154,7 +154,7 @@ async function mount() {
         catch(e){r.state=signal.aborted?'Pendente':'Erro';r.error=signal.aborted?'Consulta interrompida.':e.name==='TimeoutError'?'Tempo de consulta esgotado.':e.message||'Falha de conexão ou bloqueio do navegador.';if(e.status===429){note(e.message);controller.abort();}}
         render();note(rows.filter(x=>['Consultado','Cache antigo — reconfirmar','Erro','Inválido'].includes(x.state)).length+'/'+rows.length+' processados; '+duplicates+' duplicatas removidas.');
       }
-    } finally {lock(false);note((signal.aborted?'Interrompido. ':'Concluído. ')+rows.filter(r=>r.state==='Consultado').length+' consultados; '+rows.filter(r=>r.state==='Erro').length+' erros; '+rows.filter(r=>r.state==='Pendente').length+' pendentes; '+rows.filter(r=>r.state==='Inválido').length+' inválidos.');controller=null;}
+    } finally {lock(false);note((signal.aborted?'Interrompido. ':'Concluído. ')+rows.filter(r=>r.state==='Consultado').length+' consultados; '+rows.filter(r=>r.state==='Cache antigo — reconfirmar').length+' cópias antigas; '+rows.filter(r=>r.state==='Erro').length+' erros; '+rows.filter(r=>r.state==='Pendente').length+' pendentes; '+rows.filter(r=>r.state==='Inválido').length+' inválidos.');controller=null;}
   };
   $('cache-clear').onclick=()=>{clearCnpjCache();note('Cópias de CNPJ apagadas deste navegador. Os resultados exibidos nesta sessão permanecem até clicar em Limpar.')};
   $('stop').onclick=()=>controller?.abort();
