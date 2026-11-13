@@ -4,7 +4,7 @@
 <section class="panel"><h2>Importar Livro ISSQN</h2><label class="upload">Selecione um PDF emitido pelo sistema Nota Control (Prefeitura de Goiânia).<p><input id="file" type="file" accept=".pdf,application/pdf"></p></label><p class="muted">Processamento no navegador. O arquivo não é enviado a servidor. PDFs digitalizados sem texto selecionável não são suportados nesta versão.</p><p id="status" role="status">Nenhum arquivo selecionado.</p></section>
 <section class="panel hidden" id="output"><div class="row" style="justify-content:space-between"><div><h2>Demonstrativo mensal</h2><div id="empresa" class="sub"></div></div><div class="row actions"><button class="btn ghost" id="csv">Exportar CSV</button><button class="btn" id="print">Salvar em PDF / imprimir</button></div></div>
 <div id="warning" class="warning hidden"></div><div class="kpis"><div class="kpi">Serviços válidos<strong id="total"></strong></div><div class="kpi">Notas válidas<strong id="valid"></strong></div><div class="kpi">Notas anuladas<strong id="void"></strong></div></div><div class="scroll" style="margin-top:18px"><table><thead><tr><th>Competência (emissão)</th><th class="num">Notas válidas</th><th class="num">Serviços prestados</th><th class="num">Notas anuladas</th><th class="num">Valor anulado</th></tr></thead><tbody id="rows"></tbody><tfoot id="foot"></tfoot></table></div>
-<p class="muted">Critério: soma da coluna Valor Doc. das notas com situação Exigível, agrupadas pelo mês da data de emissão. Notas com situação Anulada são exibidas à parte e excluídas do faturamento. Confira a competência real caso seja diferente da data de emissão.</p>
+<p class="muted">Critério: soma da coluna Valor Doc. das notas válidas (Exigível ou Operação tributária), agrupadas pelo mês da data de emissão. Notas com situação Anulada são exibidas à parte e excluídas do faturamento. Confira a competência real caso seja diferente da data de emissão.</p>
 <h3>Notas anuladas identificadas</h3><div class="scroll"><table><thead><tr><th>Emissão</th><th>Número</th><th class="num">Valor</th></tr></thead><tbody id="canceladas"></tbody></table></div></section></main><footer>Portal Contábil • Conferência auxiliar — valide os totais com a escrituração antes de declarar.</footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
@@ -16,7 +16,7 @@ for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const tc=await 
 const dates=parts.filter(i=>/^\d{2}\/\d{2}\/20\d{2}$/.test(i.s)&&i.x<85);
 for(const d of dates){const nearby=parts.filter(t=>Math.abs(t.y-d.y)<3.5);const get=(lo,hi)=>nearby.filter(t=>t.x>=lo&&t.x<hi).sort((a,b)=>a.x-b.x).map(t=>t.s).join(' ').trim();
 const status=get(242,320),doc=get(320,370),num=get(145,176),valueMatch=doc.match(/(\d{1,3}(?:\.\d{3})*|\d+),\d{2}/);
-if(!/^(Exigível|Anulada)$/i.test(status)||!valueMatch){issues.push('Página '+p+', '+d.s+': linha não reconhecida ('+status+' / '+doc+').');continue}
+if(!/^(Exigível|Anulada|Operação tributá)/i.test(status)||!valueMatch){issues.push('Página '+p+', '+d.s+': linha não reconhecida ('+status+' / '+doc+').');continue}
 const [dd,mm,yyyy]=d.s.split('/');const key=yyyy+'-'+mm;const cents=parseBR(valueMatch[0]);if(!Number.isFinite(cents)){issues.push('Valor inválido na página '+p);continue}
 const id=d.s+'|'+num+'|'+status+'|'+cents;if(seen.has(id)){issues.push('Possível duplicidade de registro: '+id);continue}seen.add(id);entries.push({date:d.s,key,num,status,cents})}
 $('status').textContent='Lidas '+p+' de '+pdf.numPages+' páginas…'}
