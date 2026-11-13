@@ -1,7 +1,7 @@
 <!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Resumo mensal de serviços | Fiscora</title>
 <style>:root{font-family:Arial,sans-serif;color:#28213a;background:#f7f4fc}*{box-sizing:border-box}body{margin:0}.top{background:#39245e;color:white;padding:24px max(22px,calc((100vw - 1060px)/2))}.top a{color:#e5d7ff}main{max-width:1060px;margin:28px auto;padding:0 18px}.panel{background:white;border:1px solid #e6dff0;border-radius:17px;padding:24px;margin:18px 0;box-shadow:0 8px 25px #40305b0b}h1{margin:8px 0}h2{margin-top:0}.sub{color:#706680}.upload{display:block;padding:24px;border:2px dashed #ad93d4;border-radius:12px;background:#faf8fe}.row{display:flex;align-items:center;flex-wrap:wrap;gap:12px}.btn{border:0;background:#7450b6;color:white;border-radius:10px;padding:12px 17px;font-weight:700;cursor:pointer}.btn:disabled{background:#bbb;cursor:not-allowed}.ghost{background:#ede5f8;color:#4c3476}table{width:100%;border-collapse:collapse}th,td{padding:11px;border-bottom:1px solid #ede6f4;text-align:left}th{background:#f4eefb}.num{text-align:right;font-variant-numeric:tabular-nums}.scroll{overflow-x:auto}.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}.kpi{background:#f6efff;border-radius:12px;padding:18px}.kpi strong{display:block;font-size:23px;margin-top:7px}.muted{font-size:13px;color:#706680}.warning{background:#fff4dc;border-radius:10px;padding:13px;margin:12px 0;color:#694910}.hidden{display:none}#status{white-space:pre-wrap}footer{padding:24px;text-align:center;color:#796b8d}@media print{.top a,.upload,.actions,footer,.warning{display:none!important}body{background:white}.panel{border:none;box-shadow:none;padding:0}main{max-width:none}.top{padding:12px 0;background:white;color:black}.hidden{display:none!important}}</style>
 </head><body><div class="top"><a href="./index.html">← Voltar ao Fiscora</a><h1>Resumo mensal de serviços prestados</h1><p>Livro de Registro ISSQN • leitura de PDF e conferência mensal</p></div><main>
-<section class="panel"><h2>Importar Livro ISSQN</h2><label class="upload">Selecione um Livro de ISSQN ou demonstrativo mensal em PDF de qualquer prefeitura.<p><input id="file" type="file" accept=".pdf,application/pdf"></p></label><p class="muted">Processamento no navegador. O arquivo não é enviado a servidor. PDFs digitalizados sem texto selecionável não são suportados nesta versão.</p><p id="status" role="status">Nenhum arquivo selecionado.</p></section>
+<section class="panel"><h2>Importar Livro ISSQN</h2><label class="upload">Selecione um Livro ISSQN / NFS-e em PDF. O sistema identifica colunas e quadros-resumo, sem confundir valor de serviço com ISS.<p><input id="file" type="file" accept=".pdf,application/pdf"></p></label><p class="muted">Processamento no navegador. O arquivo não é enviado a servidor. PDFs digitalizados sem texto selecionável precisam de OCR. Formatos ainda não reconhecidos serão bloqueados, sem gerar totais enganosos.</p><p id="status" role="status">Nenhum arquivo selecionado.</p><div id="audit" class="warning hidden" role="alert"></div></section>
 <section class="panel hidden" id="output"><div class="row" style="justify-content:space-between"><div><h2>Demonstrativo mensal</h2><div id="empresa" class="sub"></div></div><div class="row actions"><button class="btn ghost" id="csv">Exportar CSV</button><button class="btn" id="print">Salvar em PDF / imprimir</button></div></div>
 <div id="warning" class="warning hidden"></div><div class="kpis"><div class="kpi">Serviços válidos<strong id="total"></strong></div><div class="kpi">Notas válidas<strong id="valid"></strong></div><div class="kpi">Notas anuladas<strong id="void"></strong></div></div><div class="scroll" style="margin-top:18px"><table><thead><tr><th>Competência (emissão)</th><th class="num">Notas válidas</th><th class="num">Serviços prestados</th><th class="num">Notas anuladas</th><th class="num">Valor anulado</th></tr></thead><tbody id="rows"></tbody><tfoot id="foot"></tfoot></table></div>
 <p class="muted">Critério: soma da coluna Valor Doc. das notas válidas (Exigível ou Operação tributária), agrupadas pelo mês da data de emissão. Notas com situação Anulada são exibidas à parte e excluídas do faturamento. Confira a competência real caso seja diferente da data de emissão.</p>
@@ -9,49 +9,155 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 (function(){
-const $=id=>document.getElementById(id);const money=n=>(n/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});const parseBR=s=>{const x=String(s).replace(/[^\d,.]/g,'').replace(/\./g,'').replace(',','.');return Math.round(Number(x)*100)};const month=k=>{const [y,m]=k.split('-');return m+'/'+y};let entries=[],summary=[];
-$('file').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;$('output').classList.add('hidden');$('status').textContent='Lendo '+file.name+'…';if(!window.pdfjsLib){$('status').textContent='Não foi possível carregar a biblioteca PDF. Verifique a conexão.';return}
-try{pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;entries=[];let issues=[],seen=new Set(),company='';
-for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p);const tc=await page.getTextContent();const width=page.view[2]-page.view[0];const parts=tc.items.filter(i=>i.str&&i.str.trim()).map(i=>({s:i.str.trim(),x:i.transform[4]*595/width,y:i.transform[5]}));if(p===1){let title=parts.find(i=>/Volcenter Service|Ltda/i.test(i.s));if(title)company=title.s}
-// Agrupa itens por linha visual, independentemente da ordem interna do PDF.
-const lines=[];for(const it of [...parts].sort((a,b)=>b.y-a.y||a.x-b.x)){let row=lines.find(r=>Math.abs(r.y-it.y)<3.0);if(!row){row={y:it.y,items:[]};lines.push(row)}row.items.push(it)}
-const months={'janeiro':'01','fevereiro':'02','março':'03','marco':'03','abril':'04','maio':'05','junho':'06','julho':'07','agosto':'08','setembro':'09','outubro':'10','novembro':'11','dezembro':'12'};
-const normalize=x=>x.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-for(const row of lines){const arr=row.items.sort((a,b)=>a.x-b.x);const joined=arr.map(t=>t.s).join(' ');const dateToken=arr.find(i=>/^\d{2}\/\d{2}\/20\d{2}$/.test(i.s)&&i.x<150);
-const summaryMonth=joined.match(/\b(janeiro|fevereiro|mar[cç]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s*\/\s*(20\d{2})\b/i);
-const amounts=[...joined.matchAll(/(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*|\d+),\d{2}\b/g)].map(m=>m[0]); 
-if(summaryMonth&&amounts.length>=2){const mm=months[normalize(summaryMonth[1])],yyyy=summaryMonth[2],key=yyyy+'-'+mm;const val=parseBR(amounts[0]),anul=parseBR(amounts[1]);if(Number.isFinite(val))entries.push({date:'01/'+mm+'/'+yyyy,key,num:'Resumo mensal',status:'Exigível',cents:val,summary:true});if(Number.isFinite(anul)&&anul>0)entries.push({date:'01/'+mm+'/'+yyyy,key,num:'Resumo mensal',status:'Anulada',cents:anul,summary:true});continue}
-if(!dateToken)continue;
-const statusMatch=joined.match(/\b(Anulada|Cancelada|Cancelado|Exigível|Tributável|Tributado|Normal|Ativa|Válida)\b/i);
-if(!statusMatch)continue;
-const status=/anulad|cancelad/i.test(statusMatch[1])?'Anulada':'Exigível';
-const date=dateToken.s;const [dd,mm,yyyy]=date.split('/');const key=yyyy+'-'+mm;
-// Primeiro valor monetário da linha do documento (não o imposto).
-const moneyItems=[];for(const t of arr){const m=t.s.match(/(?:R\\$\\s*)?((?:\\d{1,3}(?:\\.\\d{3})*|\\d+),\\d{2})\\b/);if(m)moneyItems.push({...t,amount:m[1],currency:/R\\$/.test(t.s)})}
-// O valor do documento fica depois da natureza da operação e antes da base/aliquota/ISS.
-// Nunca usar alíquota (3,51 / 5,00) como valor de serviço.
-const afterStatus=arr.find(t=>/^(Exigível|Anulada|Cancelada|Cancelado|Tributável|Tributado|Normal|Ativa|Válida)$/i.test(t.s));
-const candidates=moneyItems.filter(t=>t.x>(afterStatus?afterStatus.x+30:dateToken.x+170)&&t.x<420);
-const picked=candidates.find(t=>t.currency)||candidates.find(t=>t.x<385);
-if(!picked){issues.push('Página '+p+', '+date+': não foi possível identificar a coluna Valor Doc. com segurança.');continue}
-const cents=parseBR(picked.amount);if(!Number.isFinite(cents)){issues.push('Valor inválido: '+date);continue}
-const before=arr.filter(t=>t.x>dateToken.x+80&&t.x<picked.x).map(t=>t.s);
-const num=before.find(t=>/^\d{1,9}$/.test(t))||'?';
-const id=date+'|'+num+'|'+status+'|'+cents;
-if(num!=='?'&&seen.has(id)){issues.push('Registro duplicado: '+id);continue}seen.add(id);entries.push({date,key,num,status,cents})
+const $=id=>document.getElementById(id);
+const money=n=>(n/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const brnum=s=>Math.round(Number(String(s).replace(/[^\d.,]/g,'').replace(/\./g,'').replace(',','.'))*100);
+const month=k=>k.slice(5)+'/'+k.slice(0,4);
+const meses={janeiro:'01',fevereiro:'02',marco:'03',abril:'04',maio:'05',junho:'06',julho:'07',agosto:'08',setembro:'09',outubro:'10',novembro:'11',dezembro:'12'};
+const norm=s=>String(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+let summary=[],entries=[],notes=[],verified=false;
+function rowsFromContent(tc,scale){
+ const lines=[];
+ for(const t of tc.items){const txt=String(t.str||'').trim();if(!txt)continue;const x=t.transform[4]*scale,y=t.transform[5];
+ let row=lines.find(r=>Math.abs(r.y-y)<3.1);if(!row){row={y,items:[]};lines.push(row)}
+ row.items.push({txt,x})
+ }
+ return lines.sort((a,b)=>b.y-a.y).map(r=>({items:r.items.sort((a,b)=>a.x-b.x),text:r.items.map(t=>t.txt).join(' ')}));
 }
-$('status').textContent='Lidas '+p+' de '+pdf.numPages+' páginas…'}
-if(!entries.length)throw Error('Nenhuma linha foi reconhecida automaticamente. Verifique se o arquivo tem texto selecionável ou exporte uma planilha do portal.');
-const map=new Map();for(const n of entries){const m=map.get(n.key)||{key:n.key,valid:0,total:0,void:0,voidTotal:0};if(n.status.toLowerCase()==='anulada'){m.void++;m.voidTotal+=n.cents}else{m.valid++;m.total+=n.cents}map.set(n.key,m)}
-summary=[...map.values()].sort((a,b)=>a.key.localeCompare(b.key));const hasSummary=entries.some(i=>i.summary);const total=summary.reduce((s,m)=>s+m.total,0),v=summary.reduce((s,m)=>s+m.valid,0),c=summary.reduce((s,m)=>s+m.void,0),cv=summary.reduce((s,m)=>s+m.voidTotal,0);
-$('total').textContent=money(total);$('valid').textContent=hasSummary?'— (PDF resumido)':v;$('void').textContent=hasSummary?'— (PDF resumido)':c;$('empresa').textContent=company||file.name;
-$('rows').replaceChildren();for(const m of summary){const tr=document.createElement('tr');[month(m.key),hasSummary?'—':m.valid,money(m.total),hasSummary?'—':m.void,money(m.voidTotal)].forEach((x,i)=>{let td=document.createElement('td');td.textContent=x;if(i>0)td.className='num';tr.append(td)});$('rows').append(tr)}
-$('foot').innerHTML='<tr><th>Total</th><th class="num">'+(hasSummary?'—':v)+'</th><th class="num">'+money(total)+'</th><th class="num">'+(hasSummary?'—':c)+'</th><th class="num">'+money(cv)+'</th></tr>';
-$('canceladas').replaceChildren();for(const n of entries.filter(i=>i.status.toLowerCase()==='anulada')){let tr=document.createElement('tr');[n.date,n.num,money(n.cents)].forEach((x,i)=>{let td=document.createElement('td');td.textContent=x;if(i===2)td.className='num';tr.append(td)});$('canceladas').append(tr)}
-$('warning').classList.toggle('hidden',!issues.length);$('warning').textContent=issues.length?'ATENÇÃO: '+issues.length+' linha(s) não reconhecida(s) ou possivelmente duplicada(s). Confira o livro antes de utilizar o resultado. '+issues.slice(0,5).join(' | '):'';
-$('status').textContent='Concluído: '+entries.length+' notas reconhecidas em '+pdf.numPages+' páginas.';$('output').classList.remove('hidden');
-}catch(err){$('status').textContent='Falha na leitura: '+(err.message||err)}});
-$('print').addEventListener('click',()=>window.print());
-$('csv').addEventListener('click',()=>{if(!summary.length)return;const data=[['Mes','Quantidade validas','Servicos prestados (R$)','Quantidade anuladas','Valor anulado (R$)'],...summary.map(m=>[month(m.key),m.valid,(m.total/100).toFixed(2).replace('.',','),m.void,(m.voidTotal/100).toFixed(2).replace('.',',')])];const csv='\ufeff'+data.map(a=>a.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\r\n');const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='servicos-prestados-mensal.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)});
+function firstMoneyAfter(items,minX,maxX){
+ const subset=items.filter(i=>i.x>=minX&&i.x<maxX);
+ const str=subset.map(i=>i.txt).join(' ');
+ const matches=[...str.matchAll(/(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*|\d+),\d{2}\b/g)];
+ return matches.length?brnum(matches[0][0]):null;
+}
+function extractSummary(pages){
+ let key=null,found=[],seen=new Set(),issues=[];
+ for(let pi=0;pi<pages.length;pi++){
+  for(const row of pages[pi]){
+   const heading=norm(row.text).match(/quadro\s+resumo\s+(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s*\/\s*(20\d\d)/);
+   if(heading){key=heading[2]+'-'+meses[heading[1]];continue}
+   if(!key)continue;
+   const state=norm(row.text).match(/^\s*(anulada|anulado|cancelada|cancelado|exigivel|tributavel|normal|valida)\b/);
+   if(state){
+    const values=[...row.text.matchAll(/R\$\s*(\d{1,3}(?:\.\d{3})*|\d+),\d{2}\b/g)];
+    if(!values.length){issues.push('Resumo '+key+': sem valor na linha '+state[1]);continue}
+    const amount=brnum(values[0][1]);const status=/anulad|cancelad/.test(state[1])?'Anulada':'Exigível';
+    const id=key+'|'+status;
+    if(seen.has(id)){issues.push('Resumo duplicado: '+id);continue}seen.add(id);
+    found.push({key,status,cents:amount,date:'01/'+month(key),num:'Quadro resumo',summary:true});continue;
+   }
+   if(/quadro\s+resumo|total\s+geral/i.test(norm(row.text))&&/quadro\s+resumo/i.test(norm(row.text))===false){/* mantenha o mês até próximo cabeçalho */}
+  }
+ }
+ return {found,issues};
+}
+function extractDetail(pages){
+ let out=[],issues=[],seen=new Set(),withHeader=0,rawDates=0;
+ for(let pi=0;pi<pages.length;pi++){
+  const rows=pages[pi];
+  const header=rows.find(r=>/valor\s+(?:doc|servi|nota|total)/i.test(norm(r.text))&&/emiss|documento|tomador|numero/i.test(norm(r.text)));
+  // No layout Nota Control, Valor Doc. é a coluna próxima ao x 307; os campos ISS estão à direita.
+  // Em outros portais o cabeçalho deve ser detectável. Sem ele, não estimar faturamento.
+  if(!header){issues.push('Página '+(pi+1)+': sem cabeçalho de coluna de valores de documentos reconhecido');continue}
+  withHeader++;
+  const labels=header.items;
+  let c=labels.find(i=>/^(valor)$/i.test(i.txt)&&labels.some(j=>j.x>i.x&&j.x<i.x+55&&/doc|servi|nota|total/i.test(norm(j.txt))));
+  if(!c)c=labels.find(i=>/valor\s+(doc|servi|nota|total)/i.test(norm(i.txt)));
+  if(!c){issues.push('Página '+(pi+1)+': não foi possível localizar a coluna Valor Doc.');continue}
+  const startX=c.x-14;
+  const more=labels.filter(i=>i.x>c.x+28&&/valor\s+trib|base|aliq|iss|imposto|retenc|total\s+iss/i.test(norm(i.txt)));
+  // Na tabela de Goiânia, Valor Trib. começa em x 361; usa limite anterior a essa coluna.
+  let endX=more.length?Math.min(...more.map(i=>i.x))-5:c.x+70;
+  if(endX<=startX+18)endX=c.x+70;
+  for(const row of rows){
+   const dated=row.items.find(i=>/^\d{2}\/\d{2}\/20\d{2}$/.test(i.txt)&&i.x<170);
+   if(!dated)continue;
+   const statusMatch=norm(row.text).match(/\b(anulada|anulado|cancelada|cancelado|exigivel|tributavel)\b/);
+   if(!statusMatch)continue;
+   rawDates++;
+   const amount=firstMoneyAfter(row.items,startX,endX);
+   if(amount===null){issues.push('Página '+(pi+1)+', '+dated.txt+': valor não localizado na coluna Valor Doc.');continue}
+   const status=/anulad|cancelad/.test(statusMatch[1])?'Anulada':'Exigível';
+   const pieces=row.items.filter(i=>i.x>dated.x+55&&i.x<startX);
+   const num=pieces.find(i=>/^\d{1,8}$/.test(i.txt))?.txt||'?';
+   const id=pi+'|'+dated.txt+'|'+num+'|'+status+'|'+amount;
+   if(seen.has(id)){issues.push('Possível nota duplicada '+id);continue}seen.add(id);
+   const parts=dated.txt.split('/');out.push({date:dated.txt,key:parts[2]+'-'+parts[1],num,status,cents:amount});
+  }
+ }
+ return {out,issues,withHeader,rawDates};
+}
+function tally(rows){
+ const map=new Map();
+ for(const n of rows){
+  const m=map.get(n.key)||{key:n.key,valid:0,total:0,void:0,voidTotal:0};
+  if(n.status==='Anulada'){m.void++;m.voidTotal+=n.cents}else{m.valid++;m.total+=n.cents}
+  map.set(n.key,m)
+ }
+ return [...map.values()].sort((a,b)=>a.key.localeCompare(b.key));
+}
+function compare(summaryRows,detailRows){
+ let mismatches=[];
+ const details=new Map(tally(detailRows).map(m=>[m.key,m]));
+ for(const m of tally(summaryRows)){
+  const d=details.get(m.key);
+  if(!d)continue;
+  if(d.total!==m.total||d.voidTotal!==m.voidTotal)mismatches.push(month(m.key)+': quadro '+money(m.total)+' / notas '+money(d.total)+'; anuladas '+money(m.voidTotal)+' / '+money(d.voidTotal));
+ }
+ return mismatches;
+}
+function cell(tr,x,cls){const td=document.createElement('td');td.textContent=x;if(cls)td.className=cls;tr.append(td)}
+$('file').addEventListener('change',async e=>{
+ const file=e.target.files[0];$('output').classList.add('hidden');$('audit').classList.add('hidden');summary=[];entries=[];notes=[];verified=false;
+ if(!file)return;
+ $('status').textContent='Lendo '+file.name+'…';
+ if(!window.pdfjsLib){$('status').textContent='Biblioteca PDF indisponível. Confira a conexão à internet.';return}
+ try{
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+  let pages=[],company='';
+  for(let n=1;n<=pdf.numPages;n++){
+   const page=await pdf.getPage(n), tc=await page.getTextContent(),scale=595/page.view[2];
+   pages.push(rowsFromContent(tc,scale));
+   if(n===1){const c=pages[0].flatMap(r=>r.items).find(i=>/(?:Ltda|Eireli|S\/A)\b/i.test(i.txt));if(c)company=c.txt}
+   $('status').textContent='Lidas '+n+' de '+pdf.numPages+' páginas…';
+  }
+  const sr=extractSummary(pages),dr=extractDetail(pages);
+  notes=[...sr.issues,...dr.issues];
+  if(sr.found.length){
+    entries=sr.found;summary=tally(sr.found);
+    if(dr.out.length){const differences=compare(sr.found,dr.out);notes.push(...differences.map(s=>'Divergência: '+s));verified=differences.length===0&&sr.issues.length===0}
+    else {verified=sr.issues.length===0;notes.push('Quadros-resumo utilizados como fonte oficial; não foi possível conferir notas individuais.')}
+  }else if(dr.out.length&&dr.issues.length===0){
+    entries=dr.out;summary=tally(entries);verified=true;
+  }else{
+    throw Error('Não foi possível validar todas as linhas/colunas do PDF. Nenhum total será mostrado. '+dr.issues.slice(0,3).join(' | '));
+  }
+  if(!summary.length)throw Error('Nenhum valor de serviços validado. Revise o leiaute do arquivo.');
+  const total=summary.reduce((n,x)=>n+x.total,0),voidTotal=summary.reduce((n,x)=>n+x.voidTotal,0);
+  const validCount=dr.out.length?dr.out.filter(x=>x.status!=='Anulada').length:null;
+  const voidCount=dr.out.length?dr.out.filter(x=>x.status==='Anulada').length:null;
+  $('empresa').textContent=(company||file.name)+' • '+(sr.found.length?'fonte: quadros-resumo':'fonte: notas individuais');
+  $('total').textContent=money(total);$('valid').textContent=validCount===null?'—':validCount;$('void').textContent=voidCount===null?'—':voidCount;
+  $('rows').replaceChildren();
+  for(const m of summary){const tr=document.createElement('tr');const d=tally(dr.out).find(x=>x.key===m.key);[month(m.key),d?d.valid:'—',money(m.total),d?d.void:'—',money(m.voidTotal)].forEach((v,i)=>cell(tr,v,i?'num':''));$('rows').append(tr)}
+  $('foot').replaceChildren();const tr=document.createElement('tr');['TOTAL',validCount===null?'—':validCount,money(total),voidCount===null?'—':voidCount,money(voidTotal)].forEach((v,i)=>{const th=document.createElement('th');th.textContent=v;th.className=i?'num':'';tr.append(th)});$('foot').append(tr);
+  $('canceladas').replaceChildren();for(const n of dr.out.filter(x=>x.status==='Anulada')){const row=document.createElement('tr');[n.date,n.num,money(n.cents)].forEach((v,i)=>cell(row,v,i===2?'num':''));$('canceladas').append(row)}
+  if(!verified){$('audit').classList.remove('hidden');$('audit').textContent='ATENÇÃO: total baseado em quadro oficial, mas conferência individual não concluída ou houve divergências. '+notes.slice(0,8).join(' | ')}
+  else if(notes.length){$('audit').classList.remove('hidden');$('audit').textContent='Observações da leitura: '+notes.slice(0,5).join(' | ')}
+  $('warning').classList.toggle('hidden',verified);
+  $('warning').textContent=verified?'':'Resultado em conferência: não utilize em declarações sem validar. '+notes.filter(x=>/diverg/i.test(x)).slice(0,5).join(' | ');
+  $('csv').disabled=!verified;$('print').disabled=!verified;
+  $('status').textContent=(verified?'Conferência concluída':'Conferência parcial')+': '+(sr.found.length?'quadro-resumo de '+summary.length+' meses':'notas individuais')+' • '+pdf.numPages+' páginas • serviços '+money(total)+'.';
+  $('output').classList.remove('hidden');
+ }catch(err){$('status').textContent='Falha na validação: '+err.message; $('audit').classList.remove('hidden');$('audit').textContent='Não foram gerados valores aproveitáveis. Informe o portal de origem ou disponibilize um exportador em CSV/XLSX.'}
+});
+$('print').addEventListener('click',()=>{if(verified)window.print()});
+$('csv').addEventListener('click',()=>{
+ if(!verified||!summary.length)return;
+ const data=[['Mes','Notas validas','Servicos prestados (R$)','Notas anuladas','Valor anulado (R$)'],...summary.map(m=>[month(m.key),'',String((m.total/100).toFixed(2)).replace('.',','),'',String((m.voidTotal/100).toFixed(2)).replace('.',',')])];
+ const csv='\ufeff'+data.map(a=>a.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\r\n');
+ const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download='fiscora-servicos-prestados.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)
+});
 })();
 </script></body></html>
