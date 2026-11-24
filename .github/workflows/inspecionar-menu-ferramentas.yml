@@ -1,0 +1,24 @@
+name: Inspecionar menu para reorganização
+on:
+  push:
+    paths: ['.github/workflows/inspecionar-menu-ferramentas.yml']
+  workflow_dispatch:
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspecionar menu superior e ferramentas
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('index.html').read_text(encoding='utf-8')
+          nav=s[:s.find('</nav>')+6]
+          print('NAV_TOP',re.sub(r'\s+',' ',nav[-6000:]))
+          for m in re.finditer(r'<section\b[^>]*id=["\x27]([^"\x27]+)',s,re.I):
+              id=m.group(1)
+              if any(x in id for x in ['ferrament','difal','conferencia','saam','credito','cnae']):
+                  print('SECTION',id,'SNIPPET',re.sub(r'\s+',' ',s[m.start():m.start()+850]))
+          print('EXTERNAL_TOOLS',[(x, s.count(x)) for x in ['assistente-operacoes-fiscais.html','servicos-prestados.html','relatorio-xml-creditos.html','uso-consumo-cnae.html','apuracao-assistida.html']])
+          PY
