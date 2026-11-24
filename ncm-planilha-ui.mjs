@@ -14,9 +14,11 @@ function downloadXlsx(rows,file){
 }
 $('ncm-modelo').addEventListener('click',()=>downloadXlsx([Object.fromEntries(fields.map(k=>[k,'']))],'modelo-classificacao-ncm.xlsx'));
 $('ncm-importar').addEventListener('click',async()=>{
- const file=$('ncm-planilha-arquivo').files?.[0],catalog=globalThis.fiscoraNcmCatalog;
+ const file=$('ncm-planilha-arquivo').files?.[0];
+ if(globalThis.fiscoraNcmReady)await globalThis.fiscoraNcmReady;
+ const catalog=globalThis.fiscoraNcmCatalog;
  if(!file){status.textContent='Selecione a planilha de produtos.';return;}
- if(!Array.isArray(catalog)||!catalog.length){status.textContent='Carregue primeiro a tabela NCM oficial, no campo acima.';return;}
+ if(!Array.isArray(catalog)||!catalog.length){status.textContent='Base NCM ainda indisponível. Tente atualizar a página ou carregue outra tabela manualmente.';return;}
  try{
   if(file.size>15e6)throw Error('Planilha maior que 15 MB.');
   const x=workbook();const w=x.read(await file.arrayBuffer(),{type:'array',cellDates:false});
@@ -26,7 +28,7 @@ $('ncm-importar').addEventListener('click',async()=>{
   if(rows.length>10000)throw Error('Mais de 10.000 produtos. Divida a planilha em lotes.');
   const products=prepareProducts(rows);
   if(!products.length)throw Error('Nenhum produto com código, descrição ou NCM. Confira os cabeçalhos.');
-  analyses=products.map(p=>evaluateProduct(p,catalog));
+  analyses=products.map(p=>evaluateProduct(p,catalog,globalThis.fiscoraNcmReferenceDate||'2026-11-24'));
   const tbody=$('ncm-sheet-table');
   tbody.replaceChildren(...analyses.map((p,i)=>{
     const tr=document.createElement('tr');
@@ -38,7 +40,7 @@ $('ncm-importar').addEventListener('click',async()=>{
     input.style.minWidth='105px';input.style.width='115px';
     input.addEventListener('input',()=>{p.correct=input.value.replace(/\D/g,'').slice(0,8);input.value=p.correct;});
     cell.append(input);tr.append(cell);
-    add(p.status+(p.match!==null?' ('+p.match+'% correspondência textual)':''));
+    add(p.originalStatus+' | '+p.status+(p.match!==null?' ('+p.match+'% correspondência textual)':''));
     return tr;
   }));
   $('ncm-sheet-result').hidden=false;
