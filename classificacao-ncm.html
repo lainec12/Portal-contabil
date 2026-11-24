@@ -1,26 +1,37 @@
 <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Classificação NCM | Fiscora</title><script src="./vendor/xlsx.full.min.js"></script><style>
 :root{font-family:Inter,Arial,sans-serif;color:#22314a;background:#f4f6fc;--bg:#f4f6fc;--surface:#fff;--text:#22314a;--muted:#596c82;--border:#dce3ef;--accent:#7748a5}html[data-theme=dark]{--bg:#0d1726;--surface:#142238;--text:#edf1f9;--muted:#adbad0;--border:#2a3c55;--accent:#a38ad9}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text)}header{background:#192b49;color:white;padding:24px max(20px,calc((100vw - 1100px)/2))}header a{color:#dfcdfa}main{max-width:1100px;padding:0 16px;margin:24px auto}.card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;margin-bottom:16px}h1{margin:12px 0 4px}h2{margin:0 0 12px}label{display:block;font-weight:750;margin:10px 0}input,textarea{width:100%;padding:12px;font:inherit;border-radius:9px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:6px}button{border:0;border-radius:9px;background:var(--accent);color:white;padding:11px 16px;font-weight:800;cursor:pointer;margin:4px 8px 4px 0}.muted{color:var(--muted);font-size:.9rem}.warning{padding:12px;background:#fff1d7;color:#644811;border-left:4px solid #bf912a;border-radius:6px}details{border:1px solid var(--border);border-radius:12px;padding:13px;margin:12px 0}summary{cursor:pointer;font-weight:750}.scroll{overflow:auto}table{border-collapse:collapse;width:100%;min-width:750px;font-size:13px}th,td{padding:10px;text-align:left;border-bottom:1px solid var(--border)}th{background:color-mix(in srgb,var(--accent) 12%,var(--surface))}a{color:var(--accent)}#results{display:none}.actions{display:flex;flex-wrap:wrap;gap:8px}@media print{header,.inputs,.actions,.references{display:none!important}#results{display:block!important}.card{border:none}body{background:white;color:#111}main{max-width:none;margin:0}.scroll{overflow:visible}table{min-width:0;font-size:10px}}
 
-#ncm-progresso[hidden],#ncm-cancelar[hidden],#ncm-sheet-result[hidden]{display:none!important}
+#ncm-progresso[hidden],#ncm-cancelar[hidden],#ncm-sheet-result[hidden],#ncm-contador-progresso[hidden]{display:none!important}
 #ncm-planilha-layout{overflow-wrap:anywhere}
 #ncm-planilha-layout .ncm-page-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 0}
 #ncm-planilha-layout button:disabled{opacity:.5;cursor:wait}
 #ncm-planilha-layout .scroll{max-width:100%;width:100%}
+
+#ncm-planilha-layout .ncm-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0 20px}
+#ncm-planilha-layout .ncm-summary-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:13px;display:flex;flex-direction:column;gap:8px}
+#ncm-planilha-layout .ncm-summary-card span{font-size:12px;color:var(--muted)}
+#ncm-planilha-layout .ncm-summary-card strong{font-size:21px;color:var(--accent)}
+#ncm-planilha-layout .ncm-filtro{margin:12px 0;max-width:420px}
+#ncm-planilha-layout .ncm-filtro select{margin-top:6px;width:100%;padding:11px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px}
+@media(max-width:720px){#ncm-planilha-layout .ncm-summary-grid{grid-template-columns:repeat(2,1fr)}}
 </style></head><body><header><a href="./#ferramentas">← Voltar ao Fiscora</a><h1>Classificação fiscal NCM</h1><p>Pesquisa assistida, comparação de descrições e relatório para conferência</p></header><main><section class="card inputs">
 <h2>1. Base oficial NCM salva no Fiscora</h2><p>A edição oficial de 24/11/2026 é carregada automaticamente da base do portal. Você só precisa enviar sua planilha de produtos. Se necessário, pode substituir manualmente a tabela por outra edição oficial.</p><p><a href="https://www.gov.br/receitafederal/pt-br/assuntos/aduana-e-comercio-exterior/classificacao-fiscal-de-mercadorias/download-ncm-nomenclatura-comum-do-mercosul" target="_blank" rel="noopener">Baixar NCM vigente na Receita Federal</a></p><details><summary>Atualizar ou substituir a base NCM manualmente</summary><label>Tabela NCM oficial (.json, .xlsx, .csv)<input id="tableFile" type="file" accept=".json,.xlsx,.xls,.csv"></label><p class="muted">Essa substituição vale somente nesta sessão. A versão salva no GitHub permanece preservada.</p></details><p id="tableStatus" role="status" class="muted">Carregando base oficial salva no Fiscora…</p>
 <details class="card" id="ncm-planilha-layout" open><summary>2. Classificação por planilha — Cód. do prod | Descrição | NCM | NCM correto</summary>
-<p>Importe seus produtos e baixe a planilha no mesmo formato. A coluna <strong>NCM</strong> permanece com o código original; <strong>NCM correto</strong> recebe uma sugestão textual quando houver correspondência suficiente e pode ser editada antes da exportação.</p>
+<p>Suporta até <strong>100.000 produtos por arquivo</strong>, com progresso real e cancelamento. A classificação é feita localmente no navegador, sem enviar produtos para o GitHub. Importe seus produtos e baixe a planilha no mesmo formato. A coluna <strong>NCM</strong> permanece com o código original; <strong>NCM correto</strong> recebe uma sugestão textual quando houver correspondência suficiente e pode ser editada antes da exportação.</p>
 <button id="ncm-modelo" type="button">Baixar modelo Excel</button>
 <label>Planilha de produtos (.xlsx, .xls, .csv)<input type="file" id="ncm-planilha-arquivo" accept=".xlsx,.xls,.csv"></label>
 <button id="ncm-importar" type="button">Aplicar análise à planilha</button>
 <button id="ncm-cancelar" type="button" hidden>Cancelar análise</button>
 <progress id="ncm-progresso" max="100" value="0" hidden aria-label="Progresso da classificação NCM" style="display:block;max-width:100%;width:480px;height:18px;accent-color:var(--accent)"></progress>
+<p id="ncm-contador-progresso" class="muted" hidden aria-live="polite"></p>
 <p id="ncm-sheet-status" role="status" aria-live="polite" class="muted">A base NCM será carregada automaticamente pelo Fiscora.</p>
 <div id="ncm-sheet-result" hidden>
+<div class="ncm-summary-grid" id="ncm-resumo"></div>
+<div class="ncm-filtro"><label>Mostrar produtos<select id="ncm-filtro"><option value="todos">Todos os produtos</option><option value="sugestoes">Com sugestão textual</option><option value="pendentes">Sem NCM proposto</option><option value="originais">NCM original não vigente ou não encontrado</option></select></label></div>
 <p class="warning">A coluna “NCM correto” contém <strong>sugestões para conferência humana</strong>, não classificação fiscal homologada. Revise composição, função, material, NESH e notas legais antes de utilizar o código.</p>
 <div class="scroll"><table><thead><tr><th>Cód. do prod</th><th>Descrição</th><th>NCM</th><th>NCM correto (editável)</th><th>Observação</th></tr></thead><tbody id="ncm-sheet-table"></tbody></table></div>
 <div class="ncm-page-controls"><button id="ncm-prev" type="button">Anterior</button> <span id="ncm-pagina-info" aria-live="polite"></span> <button id="ncm-next" type="button">Próxima</button></div>
-<button id="ncm-baixar" type="button">Baixar planilha com NCM correto (.xlsx)</button>
+<button id="ncm-baixar" type="button">Baixar Excel completo com auditoria e resumo (.xlsx)</button>
 </div></details>
 <h2>3. Pesquisa avulsa por descrição ou código</h2><label>Nome, descrição ou código<input id="query" placeholder="Ex.: camisa de algodão, mesa de madeira, 6109"></label><button id="find">Pesquisar possíveis NCMs</button>
 <details><summary>Pesquisa em lote alternativa (modelo antigo)</summary><p class="muted">Planilha com colunas PRODUTO, DESCRICAO ou xProd e, opcionalmente, NCM informado. O relatório identifica possíveis descrições correspondentes para revisão.</p><label>Planilha de produtos (.xlsx, .csv)<input id="productsFile" type="file" accept=".xlsx,.xls,.csv"></label><button id="batch">Analisar planilha</button></details>
