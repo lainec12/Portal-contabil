@@ -18,18 +18,10 @@ jobs:
           idx=Path('index.html'); js=Path('portal.js')
           h=idx.read_text(encoding='utf-8')
           j=js.read_text(encoding='utf-8')
-          old="""  // Assistente fiscal: adiciona apenas um link ao menu existente, sem substituir paginas.
-  { const nav = document.getElementById('mainNav');
-    if (nav && !nav.querySelector('a[href$="assistente-operacoes-fiscais.html"]')) {
-      const link = document.createElement('a');
-      link.href = './assistente-operacoes-fiscais.html';
-      link.textContent = 'Assistente de Operações Fiscais';
-      nav.insertBefore(link, nav.children[1] || null);
-    }
-  }
-"""
-          if j.count(old)!=1:raise RuntimeError('Trecho do menu do assistente não encontrado exatamente uma vez')
-          j=j.replace(old,'  // Assistente fiscal disponível na aba Ferramentas; menu superior preservado.\n',1)
+          nav_start=j.find('  // Assistente fiscal: adiciona apenas um link ao menu existente')
+          nav_end=j.find("  document.getElementById('menuToggle')",nav_start)
+          if nav_start<0 or nav_end<0:raise RuntimeError('Trecho do assistente não localizado')
+          j=j[:nav_start]+'  // Assistente disponível na aba Ferramentas.\\n'+j[nav_end:]
           start=h.find('id="ferramentas"')
           if start<0:raise RuntimeError('Aba Ferramentas não encontrada')
           end=h.find('</section>',start)
