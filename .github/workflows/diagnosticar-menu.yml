@@ -1,4 +1,4 @@
-name: Exibir relatório XML em aba recolhível no final
+name: Posicionar relatório abaixo do comparativo C100 C170
 on:
   push:
     paths: ['.github/workflows/diagnosticar-menu.yml']
@@ -10,39 +10,57 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Corrigir posição e formato do relatório
+      - name: Posicionar após o comparativo existente
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
           p=Path('index.html')
           s=p.read_text(encoding='utf-8')
-          s,n=re.subn(r'<section id="relatorio-xml-final".*?</section>','',s,flags=re.S)
-          print('Seção anterior removida:',n)
-          if n!=1:raise RuntimeError('Esperada exatamente uma seção existente; preservando portal')
-          section='''<section id="relatorio-xml-final" style="padding:14px max(16px,5vw) 32px;background:#1e2338">
-          <div style="max-width:1180px;margin:0 auto">
-          <details style="background:#ffffff;border:1px solid #e4e4ee;border-radius:18px;overflow:hidden;color:#172238;box-shadow:0 2px 8px #0001">
-          <summary style="cursor:pointer;padding:18px 20px;font-size:16px;font-weight:700;color:#192943;background:#ffffff">Relatório de XMLs e Créditos Fiscais</summary>
-          <div style="padding:4px 20px 22px;background:#ffffff;border-top:1px solid #eeeef4">
-          <p style="color:#3e4a5e!important;line-height:1.6;margin:12px 0 16px">Importe arquivos ZIP ou XML para conferir entradas, saídas, cancelamentos, CFOPs e valores tributários. Gere relatórios em PDF para o cliente e para o escritório.</p>
-          <a href="./relatorio-xml-creditos.html" style="display:inline-block;background:#6333a6;color:#ffffff!important;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:9px">Abrir Relatório de XMLs e Créditos</a>
-          </div></details></div></section>'''
-          matches=list(re.finditer(r'</main\s*>',s,re.I))
-          if not matches:raise RuntimeError('Fechamento main não localizado')
-          point=matches[-1].start()
-          s=s[:point]+section+'\n'+s[point:]
+          s,old=re.subn(r'<section id="relatorio-xml-final".*?</section>','',s,flags=re.S)
+          print('Remoção de seção anterior:',old)
+          if old!=1:raise RuntimeError('Local antigo do relatório não identificado com segurança')
+          label=re.search(r'Comparativo\s+com\s+planilha\s+C100/C170',s,re.I)
+          if not label:raise RuntimeError('Comparativo C100/C170 não localizado')
+          print('Comparativo localizado na posição',label.start())
+          prev=s.rfind('<summary',0,label.start())
+          nextsum=s.find('</summary>',label.end())
+          if prev<0 or nextsum<0 or label.start()-prev>1500 or nextsum-label.end()>1500:
+              raise RuntimeError('Não foi possível validar o título do comparativo no summary')
+          opening=list(re.finditer(r'<details\b[^>]*>',s[:prev],re.I))
+          if not opening:raise RuntimeError('Details do comparativo não localizado')
+          start=opening[-1].start()
+          tokens=re.finditer(r'<details\b[^>]*>|</details\s*>',s[start:],re.I)
+          depth=0
+          end=None
+          for token in tokens:
+              if token.group().lower().startswith('</details'):
+                  depth-=1
+                  if depth==0:
+                      end=start+token.end()
+                      break
+              else:
+                  depth+=1
+          if end is None or end<nextsum:raise RuntimeError('Não encontrado fechamento do comparativo')
+          print('Comparativo termina na posição',end)
+          section='''<details id="relatorio-xml-final" class="card" style="background:#ffffff!important;color:#192943!important;border:1px solid #e1e4ee;border-radius:16px;overflow:hidden;margin:12px 0;box-shadow:0 2px 9px #00000010">
+          <summary style="background:#ffffff!important;color:#192943!important;cursor:pointer;padding:18px 20px;font-size:16px;font-weight:700">Relatório de XMLs e Créditos Fiscais</summary>
+          <div style="padding:8px 20px 20px;background:#ffffff!important">
+          <p style="color:#35445c!important;line-height:1.6;margin:8px 0 16px">Importe ZIPs ou XMLs para conferir entradas, saídas, cancelamentos, CFOPs e tributos, e gerar relatórios para o cliente e para o escritório.</p>
+          <a href="./relatorio-xml-creditos.html" style="display:inline-block;background:#6537a5!important;color:#ffffff!important;padding:12px 18px;border-radius:9px;text-decoration:none;font-weight:700">Abrir Relatório de XMLs e Créditos</a>
+          </div></details>'''
+          s=s[:end]+'\n'+section+s[end:]
           assert s.count('id="relatorio-xml-final"')==1
-          assert s.count('<summary style="cursor:pointer')>=1
+          assert s.index('id="relatorio-xml-final"')>label.start()
           p.write_text(s,encoding='utf-8')
-          print('Relatório inserido em bloco recolhível ao final do main')
+          print('OK: ferramenta posicionada imediatamente após o comparativo')
           PY
-      - name: Confirmar e publicar
+      - name: Salvar alteração
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.html
           if ! git diff --cached --quiet; then
-            git commit -m "Exibe relatório XML recolhível no final do portal"
+            git commit -m "Posiciona relatório XML logo abaixo do comparativo C100 C170"
             git push
           fi
