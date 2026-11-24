@@ -4,7 +4,7 @@ const fields=['Cód. do prod','Descrição','NCM','NCM correto'];
 const SIZE=75,MAX_FILE=120*1024*1024;
 const status=$('ncm-sheet-status'),progress=$('ncm-progresso'),counter=$('ncm-contador-progresso');
 const start=$('ncm-importar'),cancel=$('ncm-cancelar'),download=$('ncm-baixar');
-let rows=[],shown=[],page=0,worker=null,working='',complete=false;
+let rows=[],shown=[],page=0,worker=null,working='',complete=false,company={};
 const yieldUI=()=>new Promise(r=>setTimeout(r,15));
 function state(kind=''){
  working=kind;start.disabled=!!kind;cancel.hidden=!kind;download.disabled=!!kind||!complete;
@@ -19,8 +19,8 @@ function update(message,percent=0,n=0,total=0){
 function filtered(){
  const choice=$('ncm-filtro').value;
  if(choice==='sugestoes')return rows.filter(x=>!!x.autoSuggestion);
- if(choice==='pendentes')return rows.filter(x=>!x.correct);
- if(choice==='originais')return rows.filter(x=>!String(x.originalStatus||'').includes('vigente'));
+ if(choice==='pendentes')return rows.filter(x=>!x.correct||/ATENÇÃO|REVISÃO OBRIGATÓRIA/.test(x.obs||''));
+ if(choice==='originais')return rows.filter(x=>x.currentExists!==true);
  if(choice==='divergentes')return rows.filter(x=>x.technicalStatus==='possível incompatibilidade');
  if(choice==='insuficientes')return rows.filter(x=>x.technicalStatus==='informações insuficientes');
  return rows;
@@ -36,10 +36,10 @@ function render(){
   const td=document.createElement('td'),input=document.createElement('input');
   input.value=item.correct||'';input.maxLength=8;input.inputMode='numeric';input.style.width='115px';
   input.placeholder='Conferir NCM';input.setAttribute('aria-label','NCM correto '+item.productCode);
-  input.oninput=()=>{item.correct=input.value.replace(/\D/g,'').slice(0,8);input.value=item.correct};
+  input.oninput=()=>{item.correct=input.value.replace(/\D/g,'').slice(0,8);input.value=item.correct;item.obs='ATENÇÃO — alterado manualmente; conferir existência e adequação fiscal.';strong.textContent=item.obs;note.classList.add('ncm-attention')};
   td.append(input);tr.append(td);
   const note=document.createElement('td'),strong=document.createElement('strong'),small=document.createElement('p');
-  strong.textContent=(item.technicalStatus||'Análise técnica pendente')+' · '+(item.status||'Revisão necessária');strong.style.color=item.technicalStatus==='possível incompatibilidade'?'#c2410c':item.autoSuggestion?'var(--accent)':'var(--muted)';
+  strong.textContent=item.obs||'CONFERIR — proposta não confirmada';if(/ATENÇÃO|REVISÃO OBRIGATÓRIA/.test(strong.textContent))note.classList.add('ncm-attention');
   small.textContent=(item.technicalProblem||'')+' · '+(item.missingAttributes?'Confirmar: '+item.missingAttributes+' · ':'')+(item.originalStatus||'');small.className='muted';
   small.style.fontSize='12px';note.append(strong,small);tr.append(note);
   frag.append(tr);
@@ -49,7 +49,7 @@ function render(){
  $('ncm-prev').disabled=page===0;$('ncm-next').disabled=page>=pages-1;
 }
 function summary(){
- const total=rows.length,suggested=rows.filter(x=>x.autoSuggestion).length,valid=rows.filter(x=>String(x.originalStatus||'').includes('vigente')).length,pending=rows.filter(x=>!x.correct).length;
+ const total=rows.length,suggested=rows.filter(x=>x.autoSuggestion).length,valid=rows.filter(x=>x.currentExists===true).length,pending=rows.filter(x=>!x.correct).length;
  const conflict=rows.filter(x=>x.technicalStatus==='possível incompatibilidade').length,insufficient=rows.filter(x=>x.technicalStatus==='informações insuficientes').length;
  const values=[['Produtos analisados',total],['Possível incompatibilidade',conflict],['Dados técnicos insuficientes',insufficient],['Novas propostas',suggested],['NCMs existentes',valid],['Sem proposta',pending]];
  $('ncm-resumo').replaceChildren(...values.map(([label,value])=>{
@@ -97,7 +97,7 @@ start.onclick=async()=>{
  if(working)return;
  const file=$('ncm-planilha-arquivo').files?.[0];if(!file){status.textContent='Selecione sua planilha de produtos.';return}
  if(file.size>MAX_FILE){status.textContent='Arquivo acima de 120 MB. Divida em partes menores.';return}
- rows=[];complete=false;$('ncm-sheet-result').hidden=true;state('analyze');update('Carregando a base oficial NCM...',1);
+ company={cnpj:$('ncm-cnpj').value.trim(),activity:$('ncm-ramo').value.trim()};rows=[];complete=false;$('ncm-sheet-result').hidden=true;state('analyze');update('Carregando a base oficial NCM...',1);
  await yieldUI();
  try{
   if(globalThis.fiscoraNcmReady)await globalThis.fiscoraNcmReady;
@@ -107,12 +107,30 @@ start.onclick=async()=>{
   update('Preparando o processamento paralelo...',2);
   const buffer=await file.arrayBuffer();if(working!=='analyze')return;
   workerForTask();
-  worker.postMessage({type:'analyze',buffer,catalog,date:globalThis.fiscoraNcmReferenceDate||'2026-11-24'},[buffer]);
+  worker.postMessage({type:'analyze',buffer,catalog,company,date:globalThis.fiscoraNcmReferenceDate||'2026-11-24'},[buffer]);
  }catch(e){stop('Erro ao iniciar: '+e.message)}
 };
 download.onclick=async()=>{
  if(working||!complete||!rows.length)return;
  state('export');update('Preparando Excel com auditoria e resumo...',1);await yieldUI();
- try{workerForTask();worker.postMessage({type:'export',rows,date:globalThis.fiscoraNcmReferenceDate||'2026-11-24',source:'Fiscora: base oficial de 24/11/2026'});}
+ try{workerForTask();worker.postMessage({type:'export',rows,company,date:globalThis.fiscoraNcmReferenceDate||'2026-11-24',source:'Fiscora: base oficial de 24/11/2026'});}
  catch(e){stop('Erro ao exportar: '+e.message)}
+};
+
+$('ncm-cnpj-buscar').onclick=async()=>{
+ const button=$('ncm-cnpj-buscar'),status=$('ncm-cnpj-status');
+ const cnpj=$('ncm-cnpj').value.replace(/\D/g,'');
+ if(!/^\d{14}$/.test(cnpj)){status.textContent='Informe CNPJ numérico de 14 dígitos ou preencha o ramo manualmente.';return}
+ button.disabled=true;status.textContent='Consultando BrasilAPI...';
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);
+ try{
+  const res=await fetch('https://brasilapi.com.br/api/cnpj/v1/'+cnpj,{signal:controller.signal});
+  if(!res.ok)throw Error('Consulta indisponível ou CNPJ não encontrado (HTTP '+res.status+')');
+  const data=await res.json();
+  if(!data.cnae_fiscal_descricao)throw Error('CNAE principal não retornado');
+  const activities=[data.cnae_fiscal+' — '+data.cnae_fiscal_descricao,...(Array.isArray(data.cnaes_secundarios)?data.cnaes_secundarios.map(x=>x.codigo+' — '+x.descricao):[])];
+  $('ncm-ramo').value=activities.join(' | ');
+  status.textContent=(data.razao_social||'Empresa localizada')+' · CNAE principal: '+activities[0]+'. Confira e ajuste o ramo se necessário.';
+ }catch(e){status.textContent='Não foi possível consultar automaticamente. Informe o CNAE/ramo manualmente ou consulte a Receita Federal.'}
+ finally{clearTimeout(timeout);button.disabled=false}
 };
