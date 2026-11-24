@@ -3,6 +3,9 @@ on:
   push:
     paths:
       - 'fiscal-analysis.mjs'
+      - 'ncm-*.mjs'
+      - 'classificacao-ncm.html'
+      - 'data/ncm-*.json'
       - 'tests/**'
       - '.github/workflows/auditoria-fiscal.yml'
   workflow_dispatch:
@@ -18,6 +21,27 @@ jobs:
           node-version: '22'
       - name: Verificar sintaxe do módulo
         run: node --check fiscal-analysis.mjs
+      - name: Verificar scripts NCM
+        run: |
+          node --check ncm-classificador.mjs
+          node --check ncm-planilha.mjs
+          node --check ncm-planilha-ui.mjs
+          node --test tests/ncm-classificador.test.mjs tests/ncm-planilha.test.mjs
+      - name: Validar base NCM salva
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          import {extractNCMS,isValidOn} from './ncm-classificador.mjs';
+          const data=JSON.parse(fs.readFileSync('data/ncm-vigente-2026-11-24.json','utf8'));
+          const ncm=extractNCMS(data);
+          assert.equal(ncm.length,10516);
+          assert.equal(data.Nomenclaturas.length,15157);
+          assert.match(data.Data_Ultima_Atualizacao_NCM,/24\\/11\\/2026/);
+          assert.ok(ncm.every(item=>isValidOn(item,'2026-11-24')));
+          assert.ok(fs.readFileSync('classificacao-ncm.html','utf8').includes('fiscoraNcmReady'));
+          console.log('Base oficial salva e scripts de importação verificados:',ncm.length,'NCMs');
+          JS
       - name: Testar motor fiscal
         run: node --test tests/fiscal-analysis.test.mjs
       - name: Testes existentes
