@@ -55,11 +55,12 @@ async function exportXlsx({rows,date,source,company={}}){
  const x=self.XLSX;
  if(!x)throw Error('Biblioteca Excel indisponível no worker.');
  if(!Array.isArray(rows)||rows.length>100000)throw Error('Máximo de 100.000 produtos por exportação.');
- send('phase',{label:'Preparando cinco colunas e auditoria fiscal...',percent:12});
+ send('phase',{label:'Preparando códigos, descrições oficiais e auditoria fiscal...',percent:12});
  await new Promise(resolve=>setTimeout(resolve,0));
  const wb=x.utils.book_new();
- const main=[[...fields,'OBS'],...rows.map(r=>[String(r.productCode??''),String(r.description??''),String(r.suppliedNcm??''),String(r.correct??''),String(r.obs??'CONFERIR — proposta não confirmada')])];
- x.utils.book_append_sheet(wb,sheet(main,[21,54,18,19,90]),'Classificação NCM');
+ const {classificationHeaders,classificationExportRow}=await import('./ncm-planilha.mjs');
+ const main=[classificationHeaders,...rows.map(classificationExportRow)];
+ x.utils.book_append_sheet(wb,sheet(main,[21,54,18,72,19,72,90]),'Classificação NCM');
  send('phase',{label:'Preparando motivos e pendências para cada produto...',percent:31});
  await new Promise(resolve=>setTimeout(resolve,0));
  const detail=[
@@ -84,8 +85,8 @@ async function exportXlsx({rows,date,source,company={}}){
  ['RESUMO DE CLASSIFICAÇÃO NCM','Valor'],
  ['Produtos importados',rows.length],
  ['NCM informado vigente na data de referência',originals],
- ['Novas propostas para NCM não vigente',proposed],
- ['NCM original mantido como proposta de conferência',originals],
+ ['Novas propostas para revisão',proposed],
+ ['NCM original mantido como proposta de conferência',rows.filter(r=>r.currentExists===true&&r.correct===r.suppliedNcm).length],
  ['Total de propostas preenchidas',rows.filter(r=>r.correct).length],
  ['Produtos com NCM correto preenchido pelo arquivo de origem',reviewed],
  ['Sem proposta por informação insuficiente',unfilled],
