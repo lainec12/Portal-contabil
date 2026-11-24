@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {prepareProducts,evaluateProduct,outputRows,createNcmIndex} from '../ncm-planilha.mjs';
+import {extractNCMS} from '../ncm-classificador.mjs';
 const catalog=[{code:'61091000',description:'Camisetas de algodão'},{code:'94036000',description:'Móveis de madeira'}];
 test('interpreta os quatro cabeçalhos pedidos',()=>{
  const rows=prepareProducts([{'Cód. do prod':'0015','Descrição':'Camiseta algodão','NCM':'00000000','NCM correto':''}]);
@@ -43,4 +44,33 @@ test('analisa lote grande sem reconstruir o índice a cada produto',()=>{
  assert.equal(outputRows(evaluated)[0]['Cód. do prod'],'000001');
  assert.ok(index.cache.size<=2000);
  console.log('Teste de desempenho em lote NCM:',Date.now()-start,'ms para 2500 itens e 10516 códigos');
+});
+
+test('a NCM com descrição genérica herda contexto da posição',()=>{
+ const list=extractNCMS({Nomenclaturas:[
+ {Codigo:'87',Descricao:'Veículos automóveis e suas partes'},
+ {Codigo:'87.08',Descricao:'Partes e acessórios dos veículos automóveis'},
+ {Codigo:'8708.99.90',Descricao:'Outros'}
+ ]});
+ assert.equal(list.length,1);
+ assert.match(list[0].context,/Partes e acessórios/);
+});
+test('suporta 100.000 produtos com índice NCM reutilizado',()=>{
+ const list=Array.from({length:10516},(_,i)=>({
+  code:String(11000000+i),description:i===300?'Correias de transmissão de borracha':'Item industrial '+i+' para revisão técnica',
+  start:'01/04/2022',end:'31/12/9999',context:'Materiais e peças diversas'
+ }));
+ const index=createNcmIndex(list,'2026-11-24');
+ let count=0,filled=0;
+ for(let offset=0;offset<100000;offset+=250){
+  const batch=prepareProducts(Array.from({length:250},(_,j)=>({
+   'Cód. do prod':String(offset+j+1).padStart(6,'0'),
+   'Descrição':(offset+j)%3===0?'Correias de transmissão de borracha':'Componente desconhecido '+(offset+j),
+   'NCM':'11000300'
+  })),offset+2);
+  for(const p of batch){const r=evaluateProduct(p,index,'2026-11-24');assert.equal(r.currentExists,true);if(r.correct)filled++;count++;}
+ }
+ assert.equal(count,100000);
+ assert.ok(filled>30000);
+ assert.ok(index.cache.size<=2000);
 });
