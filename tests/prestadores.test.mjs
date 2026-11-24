@@ -3,7 +3,7 @@ import {consultarPrestador} from '../prestadores.mjs';
 const cnpj='19131243000197';
 const catalog={municipalities:[['3550308','São Paulo','SP']]};
 const body={cnpj,municipio:'SAO PAULO',uf:'SP',codigo_municipio_ibge:3550308};
-const request=data=>async url=>{assert.equal(url,'https://brasilapi.com.br/api/cnpj/v1/'+cnpj);return {ok:true,json:async()=>data}};
+const request=data=>async url=>{assert.ok([`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`,`https://minhareceita.org/${cnpj}`].includes(url),url);return {ok:true,json:async()=>data}};
 assert.equal((await consultarPrestador(cnpj,catalog,request(body))).code,'3550308');
 await assert.rejects(consultarPrestador(cnpj,catalog,request({...body,cnpj:'00000000000000'})),/outro CNPJ|corresponde/);
 await assert.rejects(consultarPrestador(cnpj,catalog,request({...body,uf:'GO'})),/correspondência/);
