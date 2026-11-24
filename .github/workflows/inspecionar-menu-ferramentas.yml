@@ -1,4 +1,4 @@
-name: Reorganizar atalhos no menu Ferramentas
+name: Estilizar Ferramentas em cartões claros
 on:
   push:
     paths: ['.github/workflows/inspecionar-menu-ferramentas.yml']
@@ -6,51 +6,70 @@ on:
 permissions:
   contents: write
 jobs:
-  reorganizar:
+  layout:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Mover atalhos de ferramentas sem excluir conteúdo
+      - name: Aplicar layout claro apenas na nova aba Ferramentas
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
           p=Path('index.html')
           s=p.read_text(encoding='utf-8')
-          # somente atalhos de ferramentas; módulos e seções originais permanecem
-          links=[
-            ('<a href="./servicos-prestados.html">Serviços Prestados · PDF</a>','Serviços Prestados · PDF','./servicos-prestados.html','Importação de relatórios de serviços e conferência fiscal de NFS-e'),
-            ('<a href="#cnpj-cnae">Conferência de CNPJ e CNAE</a>','Conferência de CNPJ e CNAE','#cnpj-cnae','Consulta cadastral e conferência de atividades CNAE'),
-            ('<a href="#difal-goias-st">DIFAL / ICMS · ferramentas</a>','DIFAL e ICMS-ST · ferramentas','#difal-goias-st','Ferramentas externas de DIFAL, ICMS-ST e retenções'),
-          ]
           marker='<section class="section" id="ferramentas">'
-          if s.count(marker)!=1:raise RuntimeError('Aba Ferramentas não encontrada de forma única')
-          for link,title,url,description in links:
-            if s.count(link)!=1:raise RuntimeError('Menu original não está como previsto: '+title)
-          for link,_,_,_ in links:s=s.replace(link,'',1)
-          extra='''<div style="display:grid;gap:12px;margin-top:12px" id="ferramentas-existentes">
-          '''
-          for _,title,url,description in links:
-            extra+='<details style="background:#ffffff;border:1px solid #dfe4ef;border-radius:14px;padding:16px 20px;color:#27334d"><summary style="font-weight:750;cursor:pointer;color:#27334d">'+title+'</summary><p style="color:#45516a">'+description+'</p><a href="'+url+'" style="display:inline-block;background:#6637a6;color:white;padding:11px 17px;border-radius:9px;text-decoration:none;font-weight:700">Abrir ferramenta</a></details>'
-          extra+='</div>'
-          # insere no fim do conteúdo da seção, antes do fechamento do seu wrap
-          start=s.index(marker)
-          boundary=s.find('</section>',start)
-          if boundary<0:raise RuntimeError('Fim da seção Ferramentas não encontrado')
-          s=s[:boundary].rstrip()+extra+s[boundary:]
-          assert 'href="#ferramentas"' in s
-          assert s.count('id="ferramentas-existentes"')==1
-          for _,_,url,_ in links:assert 'href="'+url+'"' in s
+          start=s.find(marker)
+          if start<0:raise RuntimeError('Seção Ferramentas não encontrada')
+          end=s.find('</section>',start)
+          if end<0:raise RuntimeError('Fechamento Ferramentas não encontrado')
+          block=s[start:end+len('</section>')]
+          if 'id="ferramentas-existentes"' not in block or block.count('<details')<6:
+              raise RuntimeError('Cardinalidade inesperada de ferramentas: proteger estrutura')
+          block=block.replace(marker,'<section class="section ferramentas-light" id="ferramentas">',1)
+          block=block.replace('<div style="display:grid;gap:12px">','<div class="ferramentas-grid">',1)
+          block=block.replace('<div style="display:grid;gap:12px;margin-top:12px" id="ferramentas-existentes">','<div class="ferramentas-grid ferramentas-grid-extra" id="ferramentas-existentes">',1)
+          # Existing links and descriptions remain unchanged; only remove inline styles inside this specific section.
+          block=re.sub(r'<details style="[^"]*">','<details class="ferramenta-card">',block)
+          block=re.sub(r'<summary style="[^"]*">','<summary>',block)
+          block=re.sub(r'<p style="[^"]*">','<p>',block)
+          block=re.sub(r'<a href="([^"]+)" style="[^"]*">',r'<a href="\1" class="ferramenta-open">',block)
+          assert block.count('<details class="ferramenta-card">')>=6
+          s=s[:start]+block+s[end+len('</section>'):]
+          css='''<style id="ferramentas-light-style">
+          #ferramentas.ferramentas-light{background:#f7f5fb!important;color:#302847!important}
+          #ferramentas .section-head h2{color:#302847!important}
+          #ferramentas .section-head p{color:#665b76!important}
+          #ferramentas .ferramentas-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));align-items:start;gap:18px;margin:12px 0!important}
+          #ferramentas .ferramenta-card{min-width:0;display:block;align-self:start;background:#fff!important;border:1px solid #e5ddec!important;border-radius:18px;padding:0!important;overflow:hidden;box-shadow:0 6px 20px #35254b0c;transition:box-shadow .2s ease,transform .2s ease}
+          #ferramentas .ferramenta-card:hover{box-shadow:0 10px 25px #35254b1c;transform:translateY(-2px)}
+          #ferramentas .ferramenta-card[open]{border-color:#b59bd8!important}
+          #ferramentas .ferramenta-card summary{display:list-item;cursor:pointer;list-style-position:inside;background:#fff!important;color:#382453!important;font-size:1.02rem;font-weight:750;line-height:1.45;padding:21px 20px;min-height:93px}
+          #ferramentas .ferramenta-card[open] summary{background:#f4eefd!important;border-bottom:1px solid #e9dff4}
+          #ferramentas .ferramenta-card p{color:#554a66!important;line-height:1.6;font-size:.94rem;padding:0 20px;margin:16px 0}
+          #ferramentas .ferramenta-card .ferramenta-open{display:inline-block;margin:0 20px 20px;padding:11px 16px;text-decoration:none;border-radius:10px;background:#6d43aa!important;color:#fff!important;font-weight:700;font-size:.9rem}
+          #ferramentas .ferramenta-card .ferramenta-open:hover{background:#58318f!important}
+          #ferramentas .ferramenta-card summary:focus-visible,#ferramentas .ferramenta-open:focus-visible{outline:3px solid #9671cc;outline-offset:2px}
+          @media(max-width:940px){#ferramentas .ferramentas-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+          @media(max-width:600px){#ferramentas .ferramentas-grid{grid-template-columns:1fr}#ferramentas .ferramenta-card summary{min-height:0}}
+          </style>'''
+          if 'id="ferramentas-light-style"' in s:
+              s=re.sub(r'<style id="ferramentas-light-style">.*?</style>',css,s,flags=re.S)
+          else:
+              head=s.lower().find('</head>')
+              if head<0:raise RuntimeError('Cabeçalho HTML não encontrado')
+              s=s[:head]+css+s[head:]
+          assert s.count('id="ferramentas"')==1
+          assert s.count('href="#ferramentas"')==1
+          assert all(x in s for x in ['uso-consumo-cnae.html','relatorio-xml-creditos.html','apuracao-assistida.html'])
           p.write_text(s,encoding='utf-8')
-          print('Atalhos antigos removidos do menu superior: ',len(links))
-          print('Adicionados como chavinhas dentro da aba Ferramentas')
+          print('OK: layout claro em cartões responsivos; todas ferramentas preservadas.')
           PY
-      - name: Commit
+      - name: Salvar alteração
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.html
           if ! git diff --cached --quiet; then
-            git commit -m "Organiza atalhos existentes em chavinhas dentro de Ferramentas"
+            git commit -m "Estiliza aba Ferramentas em grade de cartões claros"
             git push
           fi
