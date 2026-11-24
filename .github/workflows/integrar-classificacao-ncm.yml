@@ -1,0 +1,53 @@
+name: Integrar classificação NCM na aba Ferramentas
+on:
+  push:
+    paths: ['.github/workflows/integrar-classificacao-ncm.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  integrar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Integrar cartão NCM preservando módulos anteriores
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('index.html');s=p.read_text(encoding='utf-8')
+          start=s.find('id="ferramentas"')
+          end=s.find('</section>',start)
+          if start<0 or end<0:raise RuntimeError('Seção Ferramentas não localizada')
+          block=s[start:end]
+          if 'id="ferramenta-classificacao-ncm"' not in block:
+            marker='<div class="ferramentas-grid">'
+            if block.count(marker)!=1:raise RuntimeError('Grade principal Ferramentas não localizada')
+            card='''<details class="ferramenta-card" id="ferramenta-classificacao-ncm">
+            <summary>Classificação Fiscal NCM</summary>
+            <p>Pesquise possíveis NCMs pela descrição ou código, importe a tabela oficial e planilhas de produtos e gere um relatório de conferência em PDF ou CSV.</p>
+            <a class="ferramenta-open" href="./classificacao-ncm.html">Abrir Classificação NCM</a>
+            </details>'''
+            block=block.replace(marker,marker+'\n'+card,1)
+          s=s[:start]+block+s[end:]
+          assert s.count('id="ferramenta-classificacao-ncm"')==1
+          for f in ('classificacao-ncm.html','ncm-classificador.mjs'):assert Path(f).is_file()
+          p.write_text(s,encoding='utf-8')
+          print('OK: cartão NCM na aba Ferramentas. Nenhum módulo removido.')
+          PY
+      - name: Testar módulos fiscais e NCM
+        run: |
+          node --check ncm-classificador.mjs
+          node --test tests/ncm-classificador.test.mjs
+          node --test tests/*.test.mjs
+      - name: Publicar mudanças
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          if ! git diff --cached --quiet; then
+            git commit -m "Disponibiliza Classificação NCM na aba Ferramentas"
+            git push
+          fi
