@@ -18,8 +18,10 @@ export function prepareProducts(rows){
  }).filter(Boolean);
 }
 export function evaluateProduct(p,catalog,date='2026-11-24'){
- const existing=catalog.find(x=>x.code===p.suppliedNcm);\n const currentExists=!!existing && isValidOn(existing,date);
- const active=catalog.filter(x=>isValidOn(x,date));\n const candidate=p.description?suggest(p.description,active,2):[];
+ const existing=catalog.find(x=>x.code===p.suppliedNcm);
+ const currentExists=!!existing && isValidOn(existing,date);
+ const active=catalog.filter(x=>isValidOn(x,date));
+ const candidate=p.description?suggest(p.description,active,2):[];
  const first=candidate[0]||null,second=candidate[1]||null;
  const ambiguous=!first || first.match<60 || (second && first.match-second.match<15);
  const suggested=ambiguous?'':first.code;
