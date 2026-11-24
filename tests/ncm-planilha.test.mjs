@@ -82,7 +82,9 @@ test('mantém NCM original vigente quando busca por texto é fraca, sem confirm�
  assert.equal(r.correct,'87083090');
  assert.equal(r.currentExists,true);
  assert.equal(r.autoSuggestion,'');
- assert.match(r.status,/conferir enquadramento/i);
+ assert.equal(r.technicalStatus,'possível incompatibilidade');
+ assert.match(r.obs,/ATENÇÃO.*NCM incorreto/i);
+ assert.match(r.technicalProblem,/freio/i);
 });
 test('sugere motor de partida quando o NCM original não existe e destaca revisão',()=>{
  const r=evaluateProduct(prepareProducts([{'Cód. do prod':'5587','Descrição':'MOTOR PARTIDA FH CLASSICO','NCM':'84820000'}])[0],[
@@ -96,4 +98,19 @@ test('não considera classificação confirmada só por correspondência ou exis
   {code:'40169300',description:'Juntas de borracha',start:'01/04/2022',end:'31/12/9999'}
  ]);
  assert.equal(r.correct,'40169300');assert.match(r.reason,/NÃO como classificação confirmada/);
+});
+
+test('OBS explicita informação faltante e CNAE não confirma a classificação',()=>{
+ const p=prepareProducts([{'Cód. do prod':'A','Descrição':'Junta de vedação','NCM':'40169300'}])[0];
+ const catalog=[{code:'40169300',description:'Juntas de borracha',start:'01/04/2022',end:'31/12/9999'}];
+ const result=evaluateProduct(p,catalog,'2026-11-24',{activity:'Comércio de autopeças e acessórios para veículos'});
+ assert.equal(result.correct,'40169300');
+ assert.match(result.obs,/ATENÇÃO/i);
+ assert.equal(result.technicalStatus,'informações insuficientes');
+ assert.match(result.reason,/NÃO como classificação confirmada/);
+});
+test('OBS exige revisão para proposta de código original inexistente',()=>{
+ const result=evaluateProduct(prepareProducts([{'Cód. do prod':'B','Descrição':'Motor de partida','NCM':'00000000'}])[0],[{code:'85114000',description:'Motores de arranque'}]);
+ assert.equal(result.correct,'85114000');
+ assert.match(result.obs,/ATENÇÃO.*original inválido/i);
 });
