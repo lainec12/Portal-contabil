@@ -1,71 +1,98 @@
-// Worker dedicado a processamento local de ate 100 mil produtos.
-// Nao envia planilhas para nenhum servidor. Executa leitura, analise e exportacao fora da thread da tela.
+// Web Worker de análise NCM — processamento local de até 100.000 produtos.
 importScripts('./vendor/xlsx.full.min.js');
-const send=(type,extra={})=>self.postMessage({type,...extra});
+const send=(type,extras={})=>self.postMessage({type,...extras});
+const fields=['Cód. do prod','Descrição','NCM','NCM correto'];
+const sheet=(data,cols)=>{const ws=self.XLSX.utils.aoa_to_sheet(data,{dense:true});ws['!cols']=cols.map(w=>({wch:w}));ws['!autofilter']={ref:'A1:'+String.fromCharCode(64+data[0].length)+data.length};return ws;};
 async function analyze({buffer,catalog,date}){
- send('phase',{label:'Lendo a planilha Excel sem bloquear a página...',percent:3});
  const {prepareProducts,evaluateProduct,createNcmIndex}=await import('./ncm-planilha.mjs');
  const x=self.XLSX;
- if(!x)throw new Error('Biblioteca Excel indisponível no processamento paralelo.');
+ if(!x)throw Error('Biblioteca Excel indisponível no worker');
+ send('phase',{label:'Lendo Excel em processamento paralelo...',percent:3});
  const wb=x.read(buffer,{type:'array',dense:true,cellDates:false,bookVBA:false});
- const sheet=wb.Sheets[wb.SheetNames[0]];
- if(!sheet)throw new Error('Arquivo sem aba de produtos.');
- send('phase',{label:'Extraindo linhas e identificando colunas...',percent:9});
- const rows=x.utils.sheet_to_json(sheet,{defval:'',raw:false,blankrows:false});
- if(rows.length>100000)throw new Error('A planilha tem '+rows.length+' linhas. Limite de 100.000 produtos por arquivo.');
- if(!rows.length)throw new Error('A planilha não contém produtos.');
- send('phase',{label:'Preparando índice dos '+catalog.length.toLocaleString('pt-BR')+' NCMs...',percent:17});
+ const source=wb.Sheets[wb.SheetNames[0]];
+ if(!source)throw Error('Planilha sem aba de produtos');
+ send('phase',{label:'Identificando colunas e produtos...',percent:9});
+ const rows=x.utils.sheet_to_json(source,{defval:'',raw:false,blankrows:false});
+ if(!rows.length)throw Error('Planilha vazia.');
+ if(rows.length>100000)throw Error('Limite de 100.000 produtos. Encontradas '+rows.length+' linhas.');
+ send('phase',{label:'Preparando índice NCM com descrição e hierarquia...',percent:16});
  const index=createNcmIndex(catalog,date);
- if(!index.records.length)throw new Error('Nenhum NCM vigente disponível para a data de referência.');
- const total=rows.length,chunkSize=300;
- let count=0,suggestions=0,withoutSuggestion=0;
- for(let start=0;start<total;start+=chunkSize){
-  const end=Math.min(total,start+chunkSize),raw=rows.slice(start,end);
-  const products=prepareProducts(raw,start+2),batch=[];
+ if(!index.records.length)throw Error('Nenhum NCM vigente na data de referência.');
+ let suggested=0,validOriginal=0,without=0,count=0,accepted=0;
+ const limit=rows.length,chunkSize=200;
+ for(let start=0;start<limit;start+=chunkSize){
+  const raw=rows.slice(start,Math.min(start+chunkSize,limit));
+  const products=prepareProducts(raw,start+2);
+  const batch=[];
   for(const p of products){
    const r=evaluateProduct(p,index,date);
-   if(r.autoSuggestion)suggestions++;
-   else withoutSuggestion++;
+   if(r.autoSuggestion)suggested++;else without++;
+   if(r.currentExists)validOriginal++;
+   accepted++;
    batch.push({
-    productCode:r.productCode,description:r.description,
-    suppliedNcm:r.suppliedNcm,correct:r.correct,
-    autoSuggestion:r.autoSuggestion,originalStatus:r.originalStatus,
-    status:r.status,match:r.match,row:r.row
+    productCode:r.productCode,description:r.description,suppliedNcm:r.suppliedNcm,
+    correct:r.correct,enteredCorrect:r.enteredCorrect,autoSuggestion:r.autoSuggestion,
+    originalStatus:r.originalStatus,status:r.status,reason:r.reason,
+    candidateCode:r.candidateCode,officialDescription:r.officialDescription,
+    officialContext:r.officialContext,originalDescription:r.originalDescription,
+    originalContext:r.originalContext,match:r.match,
+    alternatives:r.alternatives,row:r.row
    });
   }
-  count=end;
-  send('batch',{rows:batch,processed:count,total,percent:Math.round(20+75*count/total)});
-  // Coopera com a fila de mensagens do worker e permite atualizar o progresso visivel.
+  count=Math.min(start+chunkSize,limit);
+  send('batch',{rows:batch,processed:count,total:limit,suggested,validOriginal,percent:Math.floor(20+76*count/limit)});
   await new Promise(resolve=>setTimeout(resolve,0));
  }
- send('done',{processed:count,total,valid:suggestions+withoutSuggestion,suggestions,withoutSuggestion});
+ send('done',{processed:count,total:limit,accepted,suggested,without,validOriginal,date});
 }
-async function exportXlsx({rows}){
+async function exportXlsx({rows,date,source}){
  const x=self.XLSX;
- if(!x)throw new Error('Biblioteca Excel indisponível para exportação.');
- if(!Array.isArray(rows)||rows.length>100000)throw new Error('Quantidade de produtos excede o limite de 100.000.');
- send('phase',{label:'Montando arquivo Excel com '+rows.length.toLocaleString('pt-BR')+' produtos...',percent:15});
+ if(!x)throw Error('Biblioteca Excel indisponível no worker.');
+ if(!Array.isArray(rows)||rows.length>100000)throw Error('Máximo de 100.000 produtos por exportação.');
+ send('phase',{label:'Preparando quatro colunas e auditoria fiscal...',percent:12});
  await new Promise(resolve=>setTimeout(resolve,0));
- const header=['Cód. do prod','Descrição','NCM','NCM correto'];
- const worksheet=x.utils.aoa_to_sheet([header,...rows.map(r=>[
-  String(r.productCode??''),String(r.description??''),
-  String(r.suppliedNcm??''),String(r.correct??'')
- ])],{dense:true});
- worksheet['!cols']=[{wch:20},{wch:54},{wch:18},{wch:20}];
- const book=x.utils.book_new();x.utils.book_append_sheet(book,worksheet,'Classificação NCM');
- send('phase',{label:'Compactando Excel. A página continua disponível...',percent:65});
+ const wb=x.utils.book_new();
+ const main=[fields,...rows.map(r=>[String(r.productCode??''),String(r.description??''),String(r.suppliedNcm??''),String(r.correct??'')])];
+ x.utils.book_append_sheet(wb,sheet(main,[21,54,18,19]),'Classificação NCM');
+ send('phase',{label:'Preparando motivos e pendências para cada produto...',percent:31});
  await new Promise(resolve=>setTimeout(resolve,0));
- const result=x.write(book,{type:'array',bookType:'xlsx',compression:true});
+ const detail=[
+ ['Cód. do prod','NCM informado','Existe / Vigência','NCM proposto','Descrição oficial da proposta','Contexto de capítulo / posição','Correspondência textual (%)','Resultado da sugestão','Motivo / análise','Alternativas NCM'],
+ ...rows.map(r=>[
+  String(r.productCode??''),String(r.suppliedNcm??''),String(r.originalStatus??''),
+  String(r.candidateCode??''),String(r.officialDescription??''),
+  String(r.officialContext??''),r.match??'',
+  String(r.status??''),String(r.reason??''),Array.isArray(r.alternatives)?r.alternatives.join(' | '):''
+ ])
+ ];
+ x.utils.book_append_sheet(wb,sheet(detail,[21,18,36,19,57,74,26,36,86,36]),'Auditoria NCM');
+ const originals=rows.filter(r=>String(r.originalStatus??'').includes('vigente')).length;
+ const proposed=rows.filter(r=>r.autoSuggestion).length;
+ const reviewed=rows.filter(r=>r.enteredCorrect).length;
+ const unfilled=rows.filter(r=>!r.correct).length;
+ const overview=[
+ ['RESUMO DE CLASSIFICAÇÃO NCM','Valor'],
+ ['Produtos importados',rows.length],
+ ['NCM informado vigente na data de referência',originals],
+ ['Sugestões textuais apresentadas',proposed],
+ ['Produtos com NCM correto preenchido pelo arquivo de origem',reviewed],
+ ['NCM correto em branco para revisão',unfilled],
+ ['Data da base de classificação',date||'Não informada'],
+ ['Base NCM',source||'Tabela importada pelo Fiscora'],
+ ['OBSERVAÇÃO','NCM correto é sugestão textual não homologada. Confira composição, material, função, RGI, notas legais e NESH.'],
+ ['AUDITORIA','Aba Auditoria NCM traz os candidatos, motivos de revisão e a situação do NCM original.']
+ ];
+ x.utils.book_append_sheet(wb,sheet(overview,[64,120]),'Resumo');
+ send('phase',{label:'Gerando e compactando a planilha Excel...',percent:65});
+ await new Promise(resolve=>setTimeout(resolve,0));
+ const result=x.write(wb,{type:'array',bookType:'xlsx',compression:true});
  const out=result instanceof Uint8Array?result:new Uint8Array(result);
  self.postMessage({type:'exported',buffer:out.buffer,bytes:out.byteLength},[out.buffer]);
 }
-self.onmessage=async event=>{
- const data=event.data||{};
+self.onmessage=async ({data})=>{
  try{
-  if(data.type==='analyze')await analyze(data);
-  else if(data.type==='export')await exportXlsx(data);
-  else throw new Error('Operação desconhecida do processamento NCM.');
- }catch(error){
-  send('error',{message:error instanceof Error?error.message:String(error)});
- }
+  if(data?.type==='analyze')await analyze(data);
+  else if(data?.type==='export')await exportXlsx(data);
+  else throw Error('Operação NCM não reconhecida.');
+ }catch(e){send('error',{message:e instanceof Error?e.message:String(e)})}
 };
