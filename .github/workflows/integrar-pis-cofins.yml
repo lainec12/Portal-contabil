@@ -1,0 +1,72 @@
+name: Integrar PIS e COFINS ao menu superior
+on:
+  push:
+    paths:
+      - '.github/workflows/integrar-pis-cofins.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  integrar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validar motor, interface e regressões
+        run: |
+          node --check pis-cofins.mjs
+          node --check pis-cofins-ui.mjs
+          node --test tests/pis-cofins.test.mjs
+          node --test tests/*.test.mjs
+          python3 - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          class Scripts(HTMLParser):
+            def __init__(self):
+              super().__init__(); self.links=[]
+            def handle_starttag(self,tag,attrs):
+              if tag=='script':
+                a=dict(attrs)
+                if a.get('src'):self.links.append(a['src'])
+          html=Path('pis-cofins.html').read_text(encoding='utf-8')
+          p=Scripts();p.feed(html)
+          assert './pis-cofins-ui.mjs' in p.links
+          assert 'PIS e COFINS' in html
+          assert 'Memória' in html
+          for path in ('pis-cofins.html','pis-cofins-ui.mjs','pis-cofins.mjs'):
+            assert Path(path).exists(), path
+          print('Nova página PIS/COFINS revisada.')
+          PY
+      - name: Adicionar acesso direto no topo, sem substituir abas existentes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          nav_start=s.find('<nav class="links" id="mainNav"')
+          nav_end=s.find('</nav>',nav_start)
+          if nav_start<0 or nav_end<0:raise RuntimeError('Menu do Fiscora não localizado.')
+          nav=s[nav_start:nav_end]
+          link='<a href="./pis-cofins.html">PIS e COFINS</a>'
+          if link not in nav:
+            needle='<a href="#ferramentas">Ferramentas</a>'
+            if needle not in nav:raise RuntimeError('Aba Ferramentas não encontrada para posicionar PIS e COFINS.')
+            nav=nav.replace(needle,needle+link,1)
+            s=s[:nav_start]+nav+s[nav_end:]
+          assert s.count('href="./pis-cofins.html"')==1
+          for marker in ['href="#conferencia-notas"','href="#ferramentas"','href="#regimes"','href="#calculadoras"']:
+            assert marker in s,marker
+          p.write_text(s,encoding='utf-8')
+          print('Menu atualizado: link direto PIS e COFINS após Ferramentas. Demais abas preservadas.')
+          PY
+      - name: Salvar menu
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          if ! git diff --cached --quiet; then
+            git commit -m "Adiciona PIS e COFINS como aba independente no menu superior"
+            git push
+          fi
