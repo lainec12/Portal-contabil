@@ -1,0 +1,51 @@
+name: Integrar ferramenta XML ao portal
+on:
+  push:
+    paths:
+      - '.github/workflows/integrar-relatorio-xml.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  integrar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Adicionar link sem sobrescrever recursos
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('index.html')
+          h=p.read_text(encoding='utf-8')
+          target='relatorio-xml-creditos.html'
+          if target in h:
+              print('Ferramenta já integrada')
+              raise SystemExit(0)
+          link='<a href="./relatorio-xml-creditos.html" class="ferramenta-relatorio-xml" style="display:inline-flex;align-items:center;gap:8px;background:#673ab7;color:white;padding:11px 16px;border-radius:9px;text-decoration:none;font-weight:700;margin:8px">📄 Relatório de XMLs e Créditos</a>'
+          match=re.search(r'<a\\b[^>]*href=["\\\'][^"\\\']*assistente-operacoes-fiscais\\.html[^"\\\']*["\\\'][^>]*>.*?</a>',h,re.I|re.S)
+          if match:
+              h=h[:match.end()]+'\\n'+link+h[match.end():]
+              print('Link integrado junto às outras ferramentas')
+          else:
+              # Fallback preserva o arquivo original sem remover menus ou funcionalidades
+              marker='</body>'
+              if marker not in h.lower():
+                  raise RuntimeError('Sem fechamento do body; revisão manual necessária')
+              pos=h.lower().rfind(marker)
+              panel='<div id="atalho-relatorio-xml" style="position:fixed;right:18px;bottom:18px;z-index:9999">'+link+'</div>'
+              h=h[:pos]+panel+'\\n'+h[pos:]
+              print('Atalho fixo integrado ao site')
+          p.write_text(h,encoding='utf-8')
+          PY
+      - name: Publicar alteração
+        run: |
+          if ! git diff --quiet -- index.html; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add index.html
+            git commit -m "Integra ferramenta de relatórios XML ao menu do portal"
+            git push
+          fi
