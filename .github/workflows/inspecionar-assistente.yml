@@ -1,0 +1,22 @@
+name: Inspecionar atalho Assistente Fiscal
+on:
+  push:
+    paths: ['.github/workflows/inspecionar-assistente.yml']
+  workflow_dispatch:
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Localizar atalhos
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for name in ('index.html','portal.js'):
+            t=Path(name).read_text(encoding='utf-8')
+            for expr in ('Assistente de Operações Fiscais','assistente-operacoes-fiscais.html','Serviços Prestados · PDF'):
+              z=list(re.finditer(re.escape(expr),t,re.I))
+              print('MATCH',name,expr,len(z))
+              for m in z[:5]:print('CONTEXT',repr(t[max(0,m.start()-300):m.end()+200]))
+          PY
