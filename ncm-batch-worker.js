@@ -18,7 +18,7 @@ async function analyze({buffer,catalog,date}){
  send('phase',{label:'Preparando índice NCM com descrição e hierarquia...',percent:16});
  const index=createNcmIndex(catalog,date);
  if(!index.records.length)throw Error('Nenhum NCM vigente na data de referência.');
- let suggested=0,validOriginal=0,without=0,count=0,accepted=0,filled=0;
+ let suggested=0,validOriginal=0,without=0,count=0,accepted=0,filled=0,divergent=0,insufficient=0;
  const limit=rows.length,chunkSize=200;
  for(let start=0;start<limit;start+=chunkSize){
   const raw=rows.slice(start,Math.min(start+chunkSize,limit));
@@ -29,6 +29,8 @@ async function analyze({buffer,catalog,date}){
    if(r.autoSuggestion)suggested++;
    if(!r.correct)without++;else filled++;
    if(r.currentExists)validOriginal++;
+   if(r.technicalStatus==='possível incompatibilidade')divergent++;
+   if(r.technicalStatus==='informações insuficientes')insufficient++;
    accepted++;
    batch.push({
     productCode:r.productCode,description:r.description,suppliedNcm:r.suppliedNcm,
@@ -38,6 +40,8 @@ async function analyze({buffer,catalog,date}){
     officialContext:r.officialContext,originalDescription:r.originalDescription,
     originalContext:r.originalContext,match:r.match,
     priority:r.priority,sourceType:r.sourceType,
+    technicalStatus:r.technicalStatus,technicalProblem:r.technicalProblem,
+    technicalEvidence:r.technicalEvidence,missingAttributes:r.missingAttributes,
     alternatives:r.alternatives,row:r.row
    });
   }
@@ -45,7 +49,7 @@ async function analyze({buffer,catalog,date}){
   send('batch',{rows:batch,processed:count,total:limit,suggested,validOriginal,percent:Math.floor(20+76*count/limit)});
   await new Promise(resolve=>setTimeout(resolve,0));
  }
- send('done',{processed:count,total:limit,accepted,suggested,without,filled,validOriginal,date});
+ send('done',{processed:count,total:limit,accepted,suggested,without,filled,validOriginal,divergent,insufficient,date});
 }
 async function exportXlsx({rows,date,source}){
  const x=self.XLSX;
@@ -59,20 +63,23 @@ async function exportXlsx({rows,date,source}){
  send('phase',{label:'Preparando motivos e pendências para cada produto...',percent:31});
  await new Promise(resolve=>setTimeout(resolve,0));
  const detail=[
- ['Cód. do prod','NCM informado','Existe / Vigência','NCM proposto','Descrição oficial da proposta','Contexto de capítulo / posição','Correspondência textual (%)','Resultado da proposta','Motivo / análise','Alternativas NCM','Origem da proposta','Prioridade da revisão'],
+ ['Cód. do prod','NCM informado','Existe / Vigência','NCM proposto','Descrição oficial da proposta','Contexto de capítulo / posição','Correspondência textual (%)','Resultado da proposta','Motivo / análise','Alternativas NCM','Origem da proposta','Prioridade da revisão','Avaliação técnica','Problema técnico identificado','Evidências da descrição','Informações faltantes'],
  ...rows.map(r=>[
   String(r.productCode??''),String(r.suppliedNcm??''),String(r.originalStatus??''),
   String(r.candidateCode??''),String(r.officialDescription??''),
   String(r.officialContext??''),r.match??'',
   String(r.status??''),String(r.reason??''),Array.isArray(r.alternatives)?r.alternatives.join(' | '):'',
-  String(r.sourceType??''),String(r.priority??'')
+  String(r.sourceType??''),String(r.priority??''),
+  String(r.technicalStatus??''),String(r.technicalProblem??''),String(r.technicalEvidence??''),String(r.missingAttributes??'')
  ])
  ];
- x.utils.book_append_sheet(wb,sheet(detail,[21,18,36,19,57,74,26,36,86,36,24,32]),'Auditoria NCM');
+ x.utils.book_append_sheet(wb,sheet(detail,[21,18,36,19,57,74,26,36,86,36,24,32,33,80,76,82]),'Auditoria NCM');
  const originals=rows.filter(r=>String(r.originalStatus??'').includes('vigente')).length;
  const proposed=rows.filter(r=>r.autoSuggestion).length;
  const reviewed=rows.filter(r=>r.enteredCorrect).length;
  const unfilled=rows.filter(r=>!r.correct).length;
+ const divergent=rows.filter(r=>r.technicalStatus==='possível incompatibilidade').length;
+ const insufficient=rows.filter(r=>r.technicalStatus==='informações insuficientes').length;
  const overview=[
  ['RESUMO DE CLASSIFICAÇÃO NCM','Valor'],
  ['Produtos importados',rows.length],
@@ -82,9 +89,12 @@ async function exportXlsx({rows,date,source}){
  ['Total de propostas preenchidas',rows.filter(r=>r.correct).length],
  ['Produtos com NCM correto preenchido pelo arquivo de origem',reviewed],
  ['Sem proposta por informação insuficiente',unfilled],
+ ['NCMs com possível incompatibilidade técnica',divergent],
+ ['Produtos sem detalhes para validação técnica',insufficient],
  ['Data da base de classificação',date||'Não informada'],
  ['Base NCM',source||'Tabela importada pelo Fiscora'],
- ['OBSERVAÇÃO','O campo NCM correto é uma PROPOSTA para conferência, não uma classificação fiscal validada. NCM existente não significa NCM apropriado ao produto.'],
+ ['OBSERVAÇÃO','NCM correto é uma proposta e NÃO uma classificação validada. A auditoria avalia apenas informações presentes na descrição. Código existente não implica compatibilidade.'],
+ ['MÉTODO','Família do produto, função, material declarado, incompatibilidades típicas e confronto com descrição oficial da NCM. Conferir regras legais e NESH.'],
  ['AUDITORIA','Aba Auditoria NCM traz os candidatos, motivos de revisão e a situação do NCM original.']
  ];
  x.utils.book_append_sheet(wb,sheet(overview,[64,120]),'Resumo');
