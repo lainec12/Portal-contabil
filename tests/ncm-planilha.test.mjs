@@ -74,3 +74,26 @@ test('suporta 100.000 produtos com índice NCM reutilizado',()=>{
  assert.ok(filled>30000);
  assert.ok(index.cache.size<=2000);
 });
+
+test('mantém NCM original vigente quando busca por texto é fraca, sem confirmá-lo',()=>{
+ const r=evaluateProduct(prepareProducts([{'Cód. do prod':'1','Descrição':'FLEXIVEL RESFRIADOR OLEO ISHIFT MENOR 23790464','NCM':'87083090'}])[0],[
+   {code:'87083090',description:'Outros',start:'01/04/2022',end:'31/12/9999',context:'Partes de freios'}
+ ]);
+ assert.equal(r.correct,'87083090');
+ assert.equal(r.currentExists,true);
+ assert.equal(r.autoSuggestion,'');
+ assert.match(r.status,/conferir enquadramento/i);
+});
+test('sugere motor de partida quando o NCM original não existe e destaca revisão',()=>{
+ const r=evaluateProduct(prepareProducts([{'Cód. do prod':'5587','Descrição':'MOTOR PARTIDA FH CLASSICO','NCM':'84820000'}])[0],[
+   {code:'85114000',description:'Motores de arranque',start:'01/04/2022',end:'31/12/9999'}
+ ]);
+ assert.equal(r.correct,'85114000');assert.equal(r.currentExists,false);
+ assert.match(r.status,/REVISÃO OBRIGATÓRIA/);
+});
+test('não considera classificação confirmada só por correspondência ou existência de código',()=>{
+ const r=evaluateProduct(prepareProducts([{'Cód. do prod':'5','Descrição':'Peça desconhecida','NCM':'40169300'}])[0],[
+  {code:'40169300',description:'Juntas de borracha',start:'01/04/2022',end:'31/12/9999'}
+ ]);
+ assert.equal(r.correct,'40169300');assert.match(r.reason,/NÃO como classificação confirmada/);
+});
