@@ -1,0 +1,78 @@
+name: Integrar pesquisa e verificar relatórios fiscais
+on:
+  push:
+    paths: ['.github/workflows/etapa-ferramentas-relatorios.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  integrar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Instalar busca na aba Ferramentas sem alterar abas antigas
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          idx=Path('index.html')
+          html=idx.read_text(encoding='utf-8')
+          if '<script type="module" src="./ferramentas-ux.mjs"></script>' not in html:
+            close=html.lower().rfind('</body>')
+            if close<0:raise RuntimeError('Fechamento de body não encontrado')
+            html=html[:close]+'<script type="module" src="./ferramentas-ux.mjs"></script>\n'+html[close:]
+          css='''<style id="ferramentas-search-style">
+          #ferramentas .ferramentas-search-bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:8px 0 20px}
+          #ferramentas .ferramentas-search-bar input{flex:1;min-width:220px;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:12px;padding:13px 15px;font:inherit}
+          #ferramentas .ferramentas-search-bar output{font-size:.9rem;color:var(--muted)}
+          #ferramentas details.ferramenta-card[hidden]{display:none!important}
+          </style>'''
+          if 'id="ferramentas-search-style"' not in html:
+            head=html.lower().find('</head>')
+            if head<0:raise RuntimeError('Fechamento head não encontrado')
+            html=html[:head]+css+html[head:]
+          for name in ('ferramentas-ux.mjs','apuracao-historico.mjs','fiscal-analysis.mjs','apuracao-assistida.html','uso-consumo-cnae.html','relatorio-xml-creditos.html'):
+            assert Path(name).is_file(),name
+          idx.write_text(html,encoding='utf-8')
+          assert html.count('id="ferramentas"')==1
+          print('Pesquisa adicionada somente à aba Ferramentas')
+          PY
+      - name: Testar sintaxe de scripts e HTML
+        run: |
+          node --check ferramentas-ux.mjs
+          node --check apuracao-historico.mjs
+          node --check fiscal-analysis.mjs
+          python3 - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          import subprocess,tempfile
+          class Inline(HTMLParser):
+            def __init__(self):super().__init__();self.typ=None;self.js=[]
+            def handle_starttag(self,tag,attrs):
+              if tag=='script':
+                d=dict(attrs);self.typ=('module' if d.get('type')=='module' else 'classic') if 'src' not in d else None
+            def handle_data(self,data):
+              if self.typ:self.js.append((self.typ,data))
+            def handle_endtag(self,tag):
+              if tag=='script':self.typ=None
+          for name in ('relatorio-xml-creditos.html','apuracao-assistida.html','uso-consumo-cnae.html'):
+            parser=Inline();parser.feed(Path(name).read_text(encoding='utf-8'))
+            for i,(typ,source) in enumerate(parser.js):
+              suffix='.mjs' if typ=='module' else '.js'
+              with tempfile.NamedTemporaryFile(suffix=suffix,mode='w',encoding='utf-8') as f:
+                f.write(source);f.flush()
+                result=subprocess.run(['node','--check',f.name],capture_output=True,text=True)
+                if result.returncode:raise RuntimeError(f'{name} script {i}: {result.stderr}')
+            print(name,len(parser.js),'scripts válidos')
+          PY
+      - name: Salvar
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          if ! git diff --cached --quiet; then
+            git commit -m "Adiciona busca à aba Ferramentas e valida scripts fiscais"
+            git push
+          fi
