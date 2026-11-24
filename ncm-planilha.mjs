@@ -145,3 +145,20 @@ export function outputRows(items){return items.map(x=>({
  'NCM':x.suppliedNcm,
  'NCM correto':x.correct
 }));}
+
+// A descrição sempre vem do registro oficial correspondente ao código, nunca do nome comercial.
+export function formatOfficialNcm(entry,code=''){
+ if(!code)return '';
+ if(!entry)return 'NCM não encontrado na base';
+ return [entry.description,entry.context].filter(Boolean).join(' — ');
+}
+export const classificationHeaders=['Cód. do prod','Descrição','NCM','Descrição NCM informado','NCM correto','Descrição NCM sugerido','OBS'];
+export function classificationExportRow(item){
+ return [
+  String(item.productCode??''),String(item.description??''),String(item.suppliedNcm??''),
+  formatOfficialNcm(item.originalDescription?{description:item.originalDescription,context:item.originalContext}:null,item.suppliedNcm),
+  String(item.correct??''),
+  formatOfficialNcm(item.officialDescription?{description:item.officialDescription,context:item.officialContext}:null,item.correct),
+  String(item.obs??'CONFERIR — proposta não confirmada')
+ ];
+}
