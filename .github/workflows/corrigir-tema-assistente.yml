@@ -1,0 +1,79 @@
+name: Corrigir tema e Assistente em Ferramentas
+on:
+  push:
+    paths: ['.github/workflows/corrigir-tema-assistente.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preservar portal e ajustar navegação
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          idx=Path('index.html'); js=Path('portal.js')
+          h=idx.read_text(encoding='utf-8')
+          j=js.read_text(encoding='utf-8')
+          old="""  // Assistente fiscal: adiciona apenas um link ao menu existente, sem substituir paginas.
+  { const nav = document.getElementById('mainNav');
+    if (nav && !nav.querySelector('a[href$="assistente-operacoes-fiscais.html"]')) {
+      const link = document.createElement('a');
+      link.href = './assistente-operacoes-fiscais.html';
+      link.textContent = 'Assistente de Operações Fiscais';
+      nav.insertBefore(link, nav.children[1] || null);
+    }
+  }
+"""
+          if j.count(old)!=1:raise RuntimeError('Trecho do menu do assistente não encontrado exatamente uma vez')
+          j=j.replace(old,'  // Assistente fiscal disponível na aba Ferramentas; menu superior preservado.\n',1)
+          start=h.find('id="ferramentas"')
+          if start<0:raise RuntimeError('Aba Ferramentas não encontrada')
+          end=h.find('</section>',start)
+          if end<start:raise RuntimeError('Fim da aba Ferramentas não encontrado')
+          block=h[start:end]
+          card='''<details class="ferramenta-card" id="ferramenta-assistente-operacoes">
+          <summary>Assistente de Operações Fiscais</summary>
+          <p>Orientações para operações de entrada e saída, enquadramento tributário e análise preliminar.</p>
+          <a class="ferramenta-open" href="./assistente-operacoes-fiscais.html">Abrir Assistente de Operações Fiscais</a>
+          </details>'''
+          if 'id="ferramenta-assistente-operacoes"' not in block:
+              loc=block.find('<div class="ferramentas-grid">')
+              if loc<0:raise RuntimeError('Grade de Ferramentas não localizada')
+              loc+=len('<div class="ferramentas-grid">')
+              block=block[:loc]+'\n'+card+'\n'+block[loc:]
+          h=h[:start]+block+h[end:]
+          # Basear aparência nos tokens do portal; regras no modo escuro têm precedência sobre o tema claro.
+          theme='''<style id="ferramentas-dark-style">
+          [data-theme="dark"] #ferramentas.ferramentas-light{background:var(--bg)!important;color:var(--text)!important}
+          [data-theme="dark"] #ferramentas .section-head h2{color:var(--text)!important}
+          [data-theme="dark"] #ferramentas .section-head p{color:var(--muted)!important}
+          [data-theme="dark"] #ferramentas .ferramenta-card{background:var(--surface)!important;border-color:var(--line)!important;box-shadow:0 8px 20px #0004}
+          [data-theme="dark"] #ferramentas .ferramenta-card[open]{border-color:var(--accent)!important}
+          [data-theme="dark"] #ferramentas .ferramenta-card summary{background:var(--surface)!important;color:var(--text)!important}
+          [data-theme="dark"] #ferramentas .ferramenta-card[open] summary{background:var(--surface-2)!important;border-color:var(--line)!important}
+          [data-theme="dark"] #ferramentas .ferramenta-card p{color:var(--muted)!important}
+          [data-theme="dark"] #ferramentas .ferramenta-card .ferramenta-open{background:#6b42ae!important;color:#fff!important}
+          </style>'''
+          if 'id="ferramentas-dark-style"' not in h:
+              pos=h.lower().find('</head>')
+              if pos<0:raise RuntimeError('HTML head não localizado')
+              h=h[:pos]+theme+h[pos:]
+          assert h.count('id="ferramenta-assistente-operacoes"')==1
+          assert Path('assistente-operacoes-fiscais.html').is_file()
+          idx.write_text(h,encoding='utf-8')
+          js.write_text(j,encoding='utf-8')
+          print('OK Assistente em Ferramentas; menu superior limpo; modo escuro acompanha o tema.')
+          PY
+      - name: Salvar
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html portal.js
+          if ! git diff --cached --quiet; then
+            git commit -m "Corrige modo escuro da aba Ferramentas e move Assistente Fiscal"
+            git push
+          fi
