@@ -48,7 +48,7 @@ function render(){
 }
 function summary(){
  const total=rows.length,suggested=rows.filter(x=>x.autoSuggestion).length,valid=rows.filter(x=>String(x.originalStatus||'').includes('vigente')).length,pending=rows.filter(x=>!x.correct).length;
- const values=[['Produtos analisados',total],['Sugestões para revisão',suggested],['NCMs originais vigentes',valid],['Sem proposta segura',pending]];
+ const values=[['Produtos analisados',total],['Novas sugestões',suggested],['NCMs originais vigentes',valid],['Sem proposta',pending]];
  $('ncm-resumo').replaceChildren(...values.map(([label,value])=>{
   const box=document.createElement('div'),name=document.createElement('span'),number=document.createElement('strong');
   box.className='ncm-summary-card';name.textContent=label;number.textContent=fmt(value);box.append(name,number);return box;
@@ -67,7 +67,7 @@ function workerForTask(){
   if(d.type==='batch'){rows.push(...d.rows);update('Analisando produtos e conferindo os NCMs...',d.percent,d.processed,d.total);return}
   if(d.type==='done'){
    complete=true;page=0;summary();render();$('ncm-sheet-result').hidden=false;
-   stop('Concluído: '+fmt(d.processed)+' produtos, '+fmt(d.suggested)+' sugestões textuais para revisão. Baixe o Excel com auditoria.');
+   stop('Concluído: '+fmt(d.processed)+' produtos · '+fmt(d.filled)+' NCMs propostos · '+fmt(d.validOriginal)+' códigos originais vigentes mantidos · '+fmt(d.suggested)+' propostas novas. Classificação fiscal ainda exige conferência.');
    return;
   }
   if(d.type==='exported'){
