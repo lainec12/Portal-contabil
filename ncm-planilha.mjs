@@ -1,6 +1,7 @@
 // Classificação NCM por planilha. Busca indexada para suportar milhares de produtos.
 // O campo "NCM correto" é uma SUGESTÃO textual revisável; não é classificação homologada.
 import {norm,digits,tokens,score,isValidOn} from './ncm-classificador.mjs';
+import {auditTechnicalProduct} from './ncm-auditoria-tecnica.mjs';
 const cleanHeader=value=>norm(value).replace(/\s/g,'');
 const get=(row,keys)=>{
  const m=new Map(Object.entries(row).map(([k,v])=>[cleanHeader(k),v]));
@@ -83,6 +84,7 @@ export function evaluateProduct(p,catalogOrIndex,date='2026-11-24'){
  if(!index||!(index.byCode instanceof Map))throw new Error('Base NCM inválida');
  const original=index.byCode.get(p.suppliedNcm);
  const currentExists=!!original&&isValidOn(original,date);
+ const technical=auditTechnicalProduct({description:p.description,ncm:p.suppliedNcm,entry:original,date});
  const manually=index.byCode.get(p.enteredCorrect);
  const manualValid=!!manually&&isValidOn(manually,date);
  const candidates=p.description?indexedSuggestions(p.description,index,3):[];
@@ -100,13 +102,22 @@ export function evaluateProduct(p,catalogOrIndex,date='2026-11-24'){
   return null;
  };
  const fallback=manualValid?manually:currentExists?original:rule||strong||prefixFallback();
- const correct=fallback?.code||'';
- const isTriage=!manualValid&&!currentExists&&!!correct;
- const status=manualValid?'NCM correto já informado no arquivo — conferir':currentExists?'NCM original vigente mantido como proposta — conferir enquadramento':isTriage?'Nova proposta NCM de triagem — REVISÃO OBRIGATÓRIA':'Sem dados para propor NCM válido — REVISÃO OBRIGATÓRIA';
+ // A auditoria verifica a natureza da mercadoria, e NÃO valida o código apenas por sua existência.
+ const technicalAlternatives=technical.suggestedCodes.filter(x=>index.byCode.has(x.code)&&isValidOn(index.byCode.get(x.code),date));
+ const directTechnicalHint=technicalAlternatives[0];
+ const specialized=['motor-partida','rolamento','parafuso','porca','embreagem','escape'];
+ const certainType=technical.status==='possível incompatibilidade'&&specialized.some(key=>technical.type===(
+  {'motor-partida':'motor de partida','rolamento':'rolamento','parafuso':'parafuso/pino roscado','porca':'porca','embreagem':'embreagem','escape':'escape/silenciador'}[key]));
+ const alternativeForConflict=certainType&&directTechnicalHint?index.byCode.get(directTechnicalHint.code):null;
+ const provisional=manualValid?manually:alternativeForConflict||fallback;
+ const correct=provisional?.code||'';
+ const isTriage=!manualValid&&(!currentExists||!!alternativeForConflict)&&!!correct;
+ const status=manualValid?'NCM informado na coluna de revisão — conferir tecnicamente':alternativeForConflict?'Proposta alternativa por incompatibilidade técnica — REVISÃO OBRIGATÓRIA':technical.status==='possível incompatibilidade'?'POSSÍVEL DIVERGÊNCIA: NCM original mantido só para investigação':currentExists?'NCM existente, verificar adequação técnica':isTriage?'Nova proposta NCM de triagem — REVISÃO OBRIGATÓRIA':'Sem dados para propor NCM válido — REVISÃO OBRIGATÓRIA';
  const reason=manualValid?'Código preenchido pelo operador e presente na base vigente. A adequação ao produto não foi verificada.':
   currentExists?'NCM informado consta na base oficial vigente. Mantido como proposta, NÃO como classificação confirmada. Validar composição, função, matéria e NESH.':
   rule?.rule||((strong&&first)?'Sugestão textual da tabela NCM; conferir função, composição, exclusões e NESH.':fallback?.rule||'Nenhum código seguro a indicar com base nos dados disponíveis.');
- const options=[...new Set([correct,...candidates.map(x=>x.code)].filter(Boolean))].slice(0,4);
+ const options=[...new Set([correct,...technicalAlternatives.map(x=>x.code),...candidates.map(x=>x.code)].filter(Boolean))].slice(0,5);
+ const reasonTechnical=technical.problem+(technical.missing.length?' Características a confirmar: '+technical.missing.join('; '):'');
  return {...p,correct,autoSuggestion:isTriage?correct:'',currentExists,
   match:currentExists?score(p.description,original):first?.match??null,
   candidateCode:correct,officialDescription:fallback?.description||'',
@@ -114,8 +125,10 @@ export function evaluateProduct(p,catalogOrIndex,date='2026-11-24'){
   originalDescription:original?.description||'',
   originalContext:original?.context||'',
   originalStatus:!p.suppliedNcm?'NCM original não informado':!original?'NCM original não encontrado na base':currentExists?'NCM original vigente na data consultada':'NCM original fora da vigência na data consultada',
-  status,reason,priority:isTriage?'ALTA: código original não vigente':currentExists?'Revisão da adequação ao produto':'Revisão obrigatória',
-  alternatives:options,sourceType:manualValid?'informado pelo usuário':currentExists?'NCM do cadastro mantido':rule?'heurística de triagem':strong?'texto da NCM':'prefixo estrutural'};
+  status,reason:reasonTechnical+' | '+reason,technical,
+  technicalStatus:technical.status,technicalProblem:technical.problem,missingAttributes:technical.missing.join(' | '),technicalEvidence:technical.evidence.join(' | '),
+  priority:technical.status==='possível incompatibilidade'||!currentExists?'ALTA: conferir enquadramento':technical.status==='informações insuficientes'?'MÉDIA: faltam características':'MÉDIA: verificar notas e subposição',
+  alternatives:options,sourceType:manualValid?'informado pelo usuário':alternativeForConflict?'alternativa por tipo técnico':currentExists?'NCM do cadastro mantido sob auditoria':rule?'heurística de triagem':strong?'texto da NCM':'prefixo estrutural'};
 }
 export function outputRows(items){return items.map(x=>({
  'Cód. do prod':x.productCode,
