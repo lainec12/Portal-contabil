@@ -9,3 +9,5 @@ test('não trata imposto de saída como crédito',()=>{assert.equal(classifyCred
 test('exige validação na entrada do lucro real',()=>{assert.equal(classifyCredit({regime:'real',direction:'Entrada',cfop:'1102'}).status,'revisão obrigatória')});
 test('auditoria remove duplicados e cancelados',()=>{const key='1'.repeat(44);const k2='2'.repeat(44);const r=auditXml({notes:[{key,type:'Entrada',month:'2026-10',value:150},{key,type:'Entrada',month:'2026-10',value:150},{key:k2,type:'Saída',month:'2026-10',value:200}],events:[{key:k2,code:'110111',accepted:true}]});assert.equal(r.entradas.valor,150);assert.equal(r.saidas.valor,0);assert.equal(r.cancelados,1);assert.equal(r.issues.length,1)});
 test('rejeita valores negativos',()=>assert.throws(()=>apuracaoAssistida({...base,icmsCredito:-2})));
+
+test('Lucro Presumido não aplica créditos típicos não cumulativos de PIS/COFINS',()=>{const r=apuracaoAssistida({...base,regime:'presumido'});assert.equal(r.icms.credito,300);assert.equal(r.pis.credito,0);assert.equal(r.cofins.credito,0);assert.equal(r.creditoInformadoNaoAplicado,250);assert.match(r.observacoes,/cumulativo/)});
