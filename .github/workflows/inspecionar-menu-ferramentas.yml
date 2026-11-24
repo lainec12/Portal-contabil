@@ -1,24 +1,56 @@
-name: Inspecionar menu para reorganização
+name: Reorganizar atalhos no menu Ferramentas
 on:
   push:
     paths: ['.github/workflows/inspecionar-menu-ferramentas.yml']
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
-  inspect:
+  reorganizar:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspecionar menu superior e ferramentas
+      - name: Mover atalhos de ferramentas sem excluir conteúdo
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
-          s=Path('index.html').read_text(encoding='utf-8')
-          nav=s[:s.find('</nav>')+6]
-          print('NAV_TOP',re.sub(r'\s+',' ',nav[-6000:]))
-          for m in re.finditer(r'<section\b[^>]*id=["\x27]([^"\x27]+)',s,re.I):
-              id=m.group(1)
-              if any(x in id for x in ['ferrament','difal','conferencia','saam','credito','cnae']):
-                  print('SECTION',id,'SNIPPET',re.sub(r'\s+',' ',s[m.start():m.start()+850]))
-          print('EXTERNAL_TOOLS',[(x, s.count(x)) for x in ['assistente-operacoes-fiscais.html','servicos-prestados.html','relatorio-xml-creditos.html','uso-consumo-cnae.html','apuracao-assistida.html']])
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          # somente atalhos de ferramentas; módulos e seções originais permanecem
+          links=[
+            ('<a href="./servicos-prestados.html">Serviços Prestados · PDF</a>','Serviços Prestados · PDF','./servicos-prestados.html','Importação de relatórios de serviços e conferência fiscal de NFS-e'),
+            ('<a href="#cnpj-cnae">Conferência de CNPJ e CNAE</a>','Conferência de CNPJ e CNAE','#cnpj-cnae','Consulta cadastral e conferência de atividades CNAE'),
+            ('<a href="#difal-goias-st">DIFAL / ICMS · ferramentas</a>','DIFAL e ICMS-ST · ferramentas','#difal-goias-st','Ferramentas externas de DIFAL, ICMS-ST e retenções'),
+          ]
+          marker='<section class="section" id="ferramentas">'
+          if s.count(marker)!=1:raise RuntimeError('Aba Ferramentas não encontrada de forma única')
+          for link,title,url,description in links:
+            if s.count(link)!=1:raise RuntimeError('Menu original não está como previsto: '+title)
+          for link,_,_,_ in links:s=s.replace(link,'',1)
+          extra='''<div style="display:grid;gap:12px;margin-top:12px" id="ferramentas-existentes">
+          '''
+          for _,title,url,description in links:
+            extra+='<details style="background:#ffffff;border:1px solid #dfe4ef;border-radius:14px;padding:16px 20px;color:#27334d"><summary style="font-weight:750;cursor:pointer;color:#27334d">'+title+'</summary><p style="color:#45516a">'+description+'</p><a href="'+url+'" style="display:inline-block;background:#6637a6;color:white;padding:11px 17px;border-radius:9px;text-decoration:none;font-weight:700">Abrir ferramenta</a></details>'
+          extra+='</div>'
+          # insere no fim do conteúdo da seção, antes do fechamento do seu wrap
+          start=s.index(marker)
+          boundary=s.find('</section>',start)
+          if boundary<0:raise RuntimeError('Fim da seção Ferramentas não encontrado')
+          s=s[:boundary].rstrip()+extra+s[boundary:]
+          assert 'href="#ferramentas"' in s
+          assert s.count('id="ferramentas-existentes"')==1
+          for _,_,url,_ in links:assert 'href="'+url+'"' in s
+          p.write_text(s,encoding='utf-8')
+          print('Atalhos antigos removidos do menu superior: ',len(links))
+          print('Adicionados como chavinhas dentro da aba Ferramentas')
           PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          if ! git diff --cached --quiet; then
+            git commit -m "Organiza atalhos existentes em chavinhas dentro de Ferramentas"
+            git push
+          fi
