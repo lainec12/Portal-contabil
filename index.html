@@ -47,7 +47,23 @@
     .xml-print-title{display:none}
     @media print{body.xml-report-printing *{visibility:hidden!important}body.xml-report-printing #xmlResults,body.xml-report-printing #xmlResults *{visibility:visible!important}body.xml-report-printing #xmlResults{position:absolute;left:0;top:0;width:100%;margin:0;padding:0;border:0;background:#fff!important;color:#15131a!important}body.xml-report-printing #xmlResults .answer-block{background:#f5f0ff!important;color:#15131a!important;break-inside:avoid}body.xml-report-printing #xmlResults article{color:#15131a!important;break-inside:avoid;page-break-inside:avoid}.xml-print-title{display:block}.xml-print-title h1{font-size:22px}.xml-print-title p{font-size:12px;color:#555}}
     </style>
-<style>#saam-f100 .saam-grid{overflow:auto;max-height:460px;margin:12px 0}#saam-f100 table{border-collapse:collapse}#saam-f100 th,#saam-f100 td{padding:5px;text-align:left;white-space:nowrap}#saam-f100 td input:not([type=checkbox]){width:10rem;padding:6px;color:inherit;background:transparent;border:1px solid gray;border-radius:5px}#saam-f100 button[aria-pressed=true]{outline:2px solid currentColor}</style><style id="sheetCompareStyles">#sheetCompare label{display:block;margin:12px 0 6px}#sheetCompare .grid>div{min-width:0}#sheetCompare input:not([type=checkbox]),#sheetCompare select{display:block;width:100%;max-width:100%;box-sizing:border-box}#sheetCompare input[type=checkbox]{width:auto}#sheetCompare button:disabled{opacity:.5;cursor:default}#sheetCompare .tax-table td{overflow-wrap:anywhere}#sheetCompare .table-scroll{max-width:100%;overflow-x:auto}</style></head>
+<style>#saam-f100 .saam-grid{overflow:auto;max-height:460px;margin:12px 0}#saam-f100 table{border-collapse:collapse}#saam-f100 th,#saam-f100 td{padding:5px;text-align:left;white-space:nowrap}#saam-f100 td input:not([type=checkbox]){width:10rem;padding:6px;color:inherit;background:transparent;border:1px solid gray;border-radius:5px}#saam-f100 button[aria-pressed=true]{outline:2px solid currentColor}</style><style id="sheetCompareStyles">#sheetCompare label{display:block;margin:12px 0 6px}#sheetCompare .grid>div{min-width:0}#sheetCompare input:not([type=checkbox]),#sheetCompare select{display:block;width:100%;max-width:100%;box-sizing:border-box}#sheetCompare input[type=checkbox]{width:auto}#sheetCompare button:disabled{opacity:.5;cursor:default}#sheetCompare .tax-table td{overflow-wrap:anywhere}#sheetCompare .table-scroll{max-width:100%;overflow-x:auto}</style><style id="ferramentas-light-style">
+#ferramentas.ferramentas-light{background:#f7f5fb!important;color:#302847!important}
+#ferramentas .section-head h2{color:#302847!important}
+#ferramentas .section-head p{color:#665b76!important}
+#ferramentas .ferramentas-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));align-items:start;gap:18px;margin:12px 0!important}
+#ferramentas .ferramenta-card{min-width:0;display:block;align-self:start;background:#fff!important;border:1px solid #e5ddec!important;border-radius:18px;padding:0!important;overflow:hidden;box-shadow:0 6px 20px #35254b0c;transition:box-shadow .2s ease,transform .2s ease}
+#ferramentas .ferramenta-card:hover{box-shadow:0 10px 25px #35254b1c;transform:translateY(-2px)}
+#ferramentas .ferramenta-card[open]{border-color:#b59bd8!important}
+#ferramentas .ferramenta-card summary{display:list-item;cursor:pointer;list-style-position:inside;background:#fff!important;color:#382453!important;font-size:1.02rem;font-weight:750;line-height:1.45;padding:21px 20px;min-height:93px}
+#ferramentas .ferramenta-card[open] summary{background:#f4eefd!important;border-bottom:1px solid #e9dff4}
+#ferramentas .ferramenta-card p{color:#554a66!important;line-height:1.6;font-size:.94rem;padding:0 20px;margin:16px 0}
+#ferramentas .ferramenta-card .ferramenta-open{display:inline-block;margin:0 20px 20px;padding:11px 16px;text-decoration:none;border-radius:10px;background:#6d43aa!important;color:#fff!important;font-weight:700;font-size:.9rem}
+#ferramentas .ferramenta-card .ferramenta-open:hover{background:#58318f!important}
+#ferramentas .ferramenta-card summary:focus-visible,#ferramentas .ferramenta-open:focus-visible{outline:3px solid #9671cc;outline-offset:2px}
+@media(max-width:940px){#ferramentas .ferramentas-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){#ferramentas .ferramentas-grid{grid-template-columns:1fr}#ferramentas .ferramenta-card summary{min-height:0}}
+</style></head>
 <body>
   <a class="skip" href="#conteudo">Pular para o conteúdo</a>
   <header class="topbar"><div class="wrap nav">
@@ -258,27 +274,27 @@
     </div></section>
   
 
-<section class="section" id="ferramentas">
+<section class="section ferramentas-light" id="ferramentas">
 <div class="wrap">
 <div class="section-head"><div><span class="kicker">Portal Contábil · Ferramentas</span><h2>Ferramentas fiscais</h2><p>Abra apenas a chavinha da ferramenta desejada. As demais abas do portal continuam disponíveis.</p></div></div>
-<div style="display:grid;gap:12px">
-<details style="background:#ffffff;border:1px solid #dfe4ef;border-radius:14px;padding:16px 20px;color:#27334d">
-<summary style="font-weight:750;cursor:pointer;color:#27334d">Análise de Uso e Consumo por CNAE</summary>
-<p style="color:#45516a">Importe XML/ZIP ou planilha C100/C170, consulte CNAEs e identifique itens suspeitos de uso e consumo ou imobilizado, inclusive quando lançados com CFOP de revenda. Exporte o relatório para conferência.</p>
-<a href="./uso-consumo-cnae.html" style="display:inline-block;background:#6637a6;color:#fff;padding:11px 17px;border-radius:9px;text-decoration:none;font-weight:700">Abrir Uso e Consumo</a>
+<div class="ferramentas-grid">
+<details class="ferramenta-card">
+<summary>Análise de Uso e Consumo por CNAE</summary>
+<p>Importe XML/ZIP ou planilha C100/C170, consulte CNAEs e identifique itens suspeitos de uso e consumo ou imobilizado, inclusive quando lançados com CFOP de revenda. Exporte o relatório para conferência.</p>
+<a href="./uso-consumo-cnae.html" class="ferramenta-open">Abrir Uso e Consumo</a>
 </details>
-<details style="background:#ffffff;border:1px solid #dfe4ef;border-radius:14px;padding:16px 20px;color:#27334d">
-<summary style="font-weight:750;cursor:pointer;color:#27334d">Relatório de XMLs e Créditos Fiscais</summary>
-<p style="color:#45516a">Totais de entrada e saída, cancelamentos, CFOP, tributos destacados e relatórios PDF para cliente e escritório.</p>
-<a href="./relatorio-xml-creditos.html" style="display:inline-block;background:#6637a6;color:#fff;padding:11px 17px;border-radius:9px;text-decoration:none;font-weight:700">Abrir Relatórios XML</a>
+<details class="ferramenta-card">
+<summary>Relatório de XMLs e Créditos Fiscais</summary>
+<p>Totais de entrada e saída, cancelamentos, CFOP, tributos destacados e relatórios PDF para cliente e escritório.</p>
+<a href="./relatorio-xml-creditos.html" class="ferramenta-open">Abrir Relatórios XML</a>
 </details>
-<details style="background:#ffffff;border:1px solid #dfe4ef;border-radius:14px;padding:16px 20px;color:#27334d">
-<summary style="font-weight:750;cursor:pointer;color:#27334d">Apuração Assistida e Memória de Cálculo</summary>
-<p style="color:#45516a">Faça um demonstrativo de valores informados e gere uma memória de cálculo para conferência humana, sem confirmação obrigatória.</p>
-<a href="./apuracao-assistida.html" style="display:inline-block;background:#6637a6;color:#fff;padding:11px 17px;border-radius:9px;text-decoration:none;font-weight:700">Abrir Apuração Assistida</a>
+<details class="ferramenta-card">
+<summary>Apuração Assistida e Memória de Cálculo</summary>
+<p>Faça um demonstrativo de valores informados e gere uma memória de cálculo para conferência humana, sem confirmação obrigatória.</p>
+<a href="./apuracao-assistida.html" class="ferramenta-open">Abrir Apuração Assistida</a>
 </details>
-</div></div><div style="display:grid;gap:12px;margin-top:12px" id="ferramentas-existentes">
-<details style="background:#ffffff;border:1px solid #dfe4ef;border-radius:14px;padding:16px 20px;color:#27334d"><summary style="font-weight:750;cursor:pointer;color:#27334d">Serviços Prestados · PDF</summary><p style="color:#45516a">Importação de relatórios de serviços e conferência fiscal de NFS-e</p><a href="./servicos-prestados.html" style="display:inline-block;background:#6637a6;color:white;padding:11px 17px;border-radius:9px;text-decoration:none;font-weight:700">Abrir ferramenta</a></details><details style="background:#ffffff;border:1px solid #dfe4ef;border-radius:14px;padding:16px 20px;color:#27334d"><summary style="font-weight:750;cursor:pointer;color:#27334d">Conferência de CNPJ e CNAE</summary><p style="color:#45516a">Consulta cadastral e conferência de atividades CNAE</p><a href="#cnpj-cnae" style="display:inline-block;background:#6637a6;color:white;padding:11px 17px;border-radius:9px;text-decoration:none;font-weight:700">Abrir ferramenta</a></details><details style="background:#ffffff;border:1px solid #dfe4ef;border-radius:14px;padding:16px 20px;color:#27334d"><summary style="font-weight:750;cursor:pointer;color:#27334d">DIFAL e ICMS-ST · ferramentas</summary><p style="color:#45516a">Ferramentas externas de DIFAL, ICMS-ST e retenções</p><a href="#difal-goias-st" style="display:inline-block;background:#6637a6;color:white;padding:11px 17px;border-radius:9px;text-decoration:none;font-weight:700">Abrir ferramenta</a></details></div></section>
+</div></div><div class="ferramentas-grid ferramentas-grid-extra" id="ferramentas-existentes">
+<details class="ferramenta-card"><summary>Serviços Prestados · PDF</summary><p>Importação de relatórios de serviços e conferência fiscal de NFS-e</p><a href="./servicos-prestados.html" class="ferramenta-open">Abrir ferramenta</a></details><details class="ferramenta-card"><summary>Conferência de CNPJ e CNAE</summary><p>Consulta cadastral e conferência de atividades CNAE</p><a href="#cnpj-cnae" class="ferramenta-open">Abrir ferramenta</a></details><details class="ferramenta-card"><summary>DIFAL e ICMS-ST · ferramentas</summary><p>Ferramentas externas de DIFAL, ICMS-ST e retenções</p><a href="#difal-goias-st" class="ferramenta-open">Abrir ferramenta</a></details></div></section>
 </main>
   <footer class="footer"><div class="wrap footer-grid"><div><a class="brand" style="color:#fff" href="#inicio"><span class="brand-mark">P</span>Fiscora</a><p>Informação contábil com clareza para apoiar melhores decisões.</p><small>Conteúdo informativo. Confirme a legislação vigente e procure orientação profissional para seu caso.</small></div><div><b>Explorar</b><a href="#duvidas">Biblioteca de dúvidas</a><a href="#reforma">Reforma Tributária</a><a href="#calculadoras">Calculadoras</a><a href="#glossario">Glossário</a><button class="secondary" id="adminOpen" style="margin-top:12px">Painel do contador</button></div><div><b>Fontes oficiais</b><a href="https://www.gov.br/receitafederal/" target="_blank" rel="noopener">Receita Federal ↗</a><a href="https://www.planalto.gov.br/" target="_blank" rel="noopener">Planalto ↗</a><a href="https://www.gov.br/receitafederal/pt-br/acesso-a-informacao/acoes-e-programas/reforma-tributaria-do-consumo" target="_blank" rel="noopener">Reforma do Consumo ↗</a></div></div><div class="wrap" style="margin-top:25px;border-top:1px solid #ffffff22;padding-top:16px;font-size:.8rem;color:#aebdd0">© 2026 Fiscora · Protótipo em arquivo único · Consulte fontes oficiais</div></footer>
   <aside class="disclaimer" id="disclaimer"><span><b>Aviso:</b> conteúdo informativo; não substitui consultoria de contador nem análise da legislação aplicável ao seu caso.</span><button id="dismissDisclaimer" aria-label="Fechar aviso">Entendi ×</button></aside>
