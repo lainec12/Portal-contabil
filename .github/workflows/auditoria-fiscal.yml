@@ -37,7 +37,7 @@ jobs:
           const ncm=extractNCMS(data);
           assert.equal(ncm.length,10516);
           assert.equal(data.Nomenclaturas.length,15157);
-          assert.match(data.Data_Ultima_Atualizacao_NCM,/24\\/11\\/2026/);
+          assert.ok(data.Data_Ultima_Atualizacao_NCM.includes('24/11/2026'));
           assert.ok(ncm.every(item=>isValidOn(item,'2026-11-24')));
           assert.ok(fs.readFileSync('classificacao-ncm.html','utf8').includes('fiscoraNcmReady'));
           console.log('Base oficial salva e scripts de importação verificados:',ncm.length,'NCMs');
