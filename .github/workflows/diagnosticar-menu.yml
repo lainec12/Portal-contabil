@@ -24,12 +24,15 @@ jobs:
           if link not in h:
               if nav not in h:raise SystemExit('Navegação Notas/XML não localizada')
               h=h.replace(nav,nav+link,1)
-          sect=re.search(r'<section\\b[^>]*id=["\\\']conferencia-notas["\\\'][^>]*>',h,re.I)
-          if not sect:raise SystemExit('Seção Notas/XML não localizada')
+          marker='id="conferencia-notas"'
+          posmark=h.find(marker)
+          print('Âncora da seção',posmark)
           card='<div class="card" id="card-relatorio-xml" style="margin:16px 0;padding:18px;border:2px solid #8760bb;border-radius:14px;background:#f8f3ff"><h3>Relatório de XMLs e Créditos Fiscais</h3><p>Importe ZIPs ou XMLs, confira entradas e saídas, cancelamentos, CFOPs e valores tributários. Gere relatórios em PDF para o cliente e para o escritório.</p><a class="primary" style="display:inline-block;background:#673ab7;color:white;padding:12px 18px;border-radius:9px;text-decoration:none" href="./relatorio-xml-creditos.html">Abrir Relatório de XMLs e Créditos</a></div>'
-          if 'id="card-relatorio-xml"' not in h:
-              pos=sect.end()
-              h=h[:pos]+card+h[pos:]
+          if 'id="card-relatorio-xml"' not in h and posmark>=0:
+              pos=h.rfind('<section',0,posmark)
+              if pos<0 or posmark-pos>400:pos=h.rfind('<div',0,posmark)
+              if pos>=0 and posmark-pos<400:h=h[:pos]+card+h[pos:]
+              else:print('Card não inserido; link principal adicionado ao menu')
           p.write_text(h,encoding='utf-8')
           print('Link integrado no menu Notas/XML e card na seção')
           PY
