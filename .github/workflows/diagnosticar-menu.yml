@@ -1,4 +1,4 @@
-name: Integrar relatório no menu Notas XML
+name: Posicionar relatório XML no final do portal
 on:
   push:
     paths: ['.github/workflows/diagnosticar-menu.yml']
@@ -10,35 +10,48 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Integrar link na navegação e na seção
+      - name: Mover card para o final e corrigir contraste
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
           p=Path('index.html')
           h=p.read_text(encoding='utf-8')
-          h,n=re.subn(r'<div id="atalho-relatorio-xml".*?</div>\\n?', '',h,count=1,flags=re.S)
-          print('Atalho flutuante removido',n)
+          pattern=r'<div class="card" id="card-relatorio-xml"[^>]*>.*?</div>'
+          h,count=re.subn(pattern,'',h,flags=re.S)
+          print('Cards antigos removidos:',count)
+          h=re.sub(r'<section id="relatorio-xml-final"[^>]*>.*?</section>','',h,flags=re.S)
           link='<a href="./relatorio-xml-creditos.html">Relatório XML e Créditos</a>'
-          nav='<a href="#conferencia-notas">Notas/XML</a>'
-          if link not in h:
-              if nav not in h:raise SystemExit('Navegação Notas/XML não localizada')
-              h=h.replace(nav,nav+link,1)
-          marker='id="conferencia-notas"'
-          posmark=h.find(marker)
-          print('Âncora da seção',posmark)
-          card='<div class="card" id="card-relatorio-xml" style="margin:16px 0;padding:18px;border:2px solid #8760bb;border-radius:14px;background:#f8f3ff"><h3>Relatório de XMLs e Créditos Fiscais</h3><p>Importe ZIPs ou XMLs, confira entradas e saídas, cancelamentos, CFOPs e valores tributários. Gere relatórios em PDF para o cliente e para o escritório.</p><a class="primary" style="display:inline-block;background:#673ab7;color:white;padding:12px 18px;border-radius:9px;text-decoration:none" href="./relatorio-xml-creditos.html">Abrir Relatório de XMLs e Créditos</a></div>'
-          if 'id="card-relatorio-xml"' not in h and posmark>=0:
-              pos=h.rfind('<section',0,posmark)
-              if pos<0 or posmark-pos>400:pos=h.rfind('<div',0,posmark)
-              if pos>=0 and posmark-pos<400:h=h[:pos]+card+h[pos:]
-              else:print('Card não inserido; link principal adicionado ao menu')
+          if link in h:
+              h=h.replace(link,'<a href="#relatorio-xml-final">Relatório XML e Créditos</a>')
+          elif '<a href="#relatorio-xml-final">Relatório XML e Créditos</a>' not in h:
+              nav='<a href="#conferencia-notas">Notas/XML</a>'
+              if nav in h:h=h.replace(nav,nav+'<a href="#relatorio-xml-final">Relatório XML e Créditos</a>',1)
+          card='''<section id="relatorio-xml-final" style="padding:32px max(20px,5vw);background:#1e2338">
+          <div style="max-width:1180px;margin:auto;background:#f7f2ff!important;border:2px solid #7a4bc2;border-radius:16px;padding:24px;box-shadow:0 6px 24px #0002">
+          <h2 style="color:#3b1f66!important;font-size:24px;font-weight:800;margin:0 0 12px">Relatório de XMLs e Créditos Fiscais</h2>
+          <p style="color:#4d386a!important;font-size:16px;line-height:1.65;margin:0 0 18px">Importe ZIPs ou XMLs, confira entradas e saídas, cancelamentos, CFOPs e valores tributários. Gere relatórios em PDF para o cliente e para o escritório.</p>
+          <a href="./relatorio-xml-creditos.html" style="display:inline-block;background:#6f3cc3!important;color:#ffffff!important;padding:13px 18px;border-radius:10px;text-decoration:none;font-weight:800">Abrir Relatório de XMLs e Créditos</a>
+          </div></section>'''
+          marker=re.search(r'</main\s*>',h,re.I)
+          if marker:
+              h=h[:marker.start()]+card+'\n'+h[marker.start():]
+              print('Card inserido ao final do conteúdo principal')
+          else:
+              foot=re.search(r'<footer\b',h,re.I)
+              if not foot:raise SystemExit('Não foi possível identificar o fim do portal; arquivo preservado')
+              h=h[:foot.start()]+card+'\n'+h[foot.start():]
+              print('Card inserido antes do rodapé')
+          assert h.count('id="relatorio-xml-final"')==1
+          assert h.count('href="./relatorio-xml-creditos.html"')>=1
           p.write_text(h,encoding='utf-8')
-          print('Link integrado no menu Notas/XML e card na seção')
           PY
-      - name: Salvar
+      - name: Gravar alteração
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add index.html
-          if ! git diff --cached --quiet; then git commit -m "Exibe Relatório de XML e Créditos no menu Notas/XML"; git push; fi
+          if ! git diff --cached --quiet; then
+            git commit -m "Move relatório XML ao final do portal e melhora contraste"
+            git push
+          fi
