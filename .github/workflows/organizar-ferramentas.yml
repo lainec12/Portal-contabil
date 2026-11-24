@@ -1,0 +1,72 @@
+name: Organizar novas ferramentas em aba propria
+on:
+  push:
+    paths:
+      - '.github/workflows/organizar-ferramentas.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  organizar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preservar abas originais e organizar ferramentas
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          original=s
+          # retira o atalho personalizado anterior, não as ferramentas originais
+          s,n=re.subn(r'<details id="relatorio-xml-final".*?</details>','',s,count=1,flags=re.S)
+          print('Antiga chavinha XML removida:',n)
+          s,n2=re.subn(r'<section id="relatorio-xml-final".*?</section>','',s,count=1,flags=re.S)
+          print('Antiga seção XML removida:',n2)
+          s=re.sub(r'<a href="#relatorio-xml-final">Relatório XML e Créditos</a>','',s)
+          s=re.sub(r'<a href="./relatorio-xml-creditos.html">Relatório XML e Créditos</a>','',s)
+          nav='<a href="#conferencia-notas">Notas/XML</a>'
+          if nav not in s:raise RuntimeError('Aba Notas/XML não encontrada — arquivo preservado')
+          # adiciona o item exatamente ao lado de Notas/XML
+          s=s.replace(nav,nav+'<a href="#ferramentas">Ferramentas</a>',1)
+          sec='''<section class="section" id="ferramentas">
+          <div class="wrap">
+          <div class="section-head"><div><span class="kicker">Portal Contábil · Ferramentas</span><h2>Ferramentas fiscais</h2><p>Abra apenas a chavinha da ferramenta desejada. As demais abas do portal continuam disponíveis.</p></div></div>
+          <div style="display:grid;gap:12px">
+          <details style="background:#ffffff;border:1px solid #dfe4ef;border-radius:14px;padding:16px 20px;color:#27334d">
+          <summary style="font-weight:750;cursor:pointer;color:#27334d">Análise de Uso e Consumo por CNAE</summary>
+          <p style="color:#45516a">Importe XML/ZIP ou planilha C100/C170, consulte CNAEs e identifique itens suspeitos de uso e consumo ou imobilizado, inclusive quando lançados com CFOP de revenda. Exporte o relatório para conferência.</p>
+          <a href="./uso-consumo-cnae.html" style="display:inline-block;background:#6637a6;color:#fff;padding:11px 17px;border-radius:9px;text-decoration:none;font-weight:700">Abrir Uso e Consumo</a>
+          </details>
+          <details style="background:#ffffff;border:1px solid #dfe4ef;border-radius:14px;padding:16px 20px;color:#27334d">
+          <summary style="font-weight:750;cursor:pointer;color:#27334d">Relatório de XMLs e Créditos Fiscais</summary>
+          <p style="color:#45516a">Totais de entrada e saída, cancelamentos, CFOP, tributos destacados e relatórios PDF para cliente e escritório.</p>
+          <a href="./relatorio-xml-creditos.html" style="display:inline-block;background:#6637a6;color:#fff;padding:11px 17px;border-radius:9px;text-decoration:none;font-weight:700">Abrir Relatórios XML</a>
+          </details>
+          <details style="background:#ffffff;border:1px solid #dfe4ef;border-radius:14px;padding:16px 20px;color:#27334d">
+          <summary style="font-weight:750;cursor:pointer;color:#27334d">Apuração Assistida e Memória de Cálculo</summary>
+          <p style="color:#45516a">Faça um demonstrativo de valores informados e gere uma memória de cálculo para conferência humana, sem confirmação obrigatória.</p>
+          <a href="./apuracao-assistida.html" style="display:inline-block;background:#6637a6;color:#fff;padding:11px 17px;border-radius:9px;text-decoration:none;font-weight:700">Abrir Apuração Assistida</a>
+          </details>
+          </div></div></section>'''
+          end=list(re.finditer(r'</main\s*>',s,re.I))
+          if not end:raise RuntimeError('Fim do conteúdo não localizado')
+          point=end[-1].start()
+          s=s[:point]+sec+'\n'+s[point:]
+          assert s.count('id="ferramentas"')==1 and s.count('href="#ferramentas"')==1
+          for target in ('uso-consumo-cnae.html','relatorio-xml-creditos.html','apuracao-assistida.html'):
+            if not Path(target).is_file():raise RuntimeError('Ferramenta ausente: '+target)
+          p.write_text(s,encoding='utf-8')
+          print('Nova aba Ferramentas, ao lado de Notas/XML; outras seções mantidas')
+          print('Alteração de caracteres:',len(s)-len(original))
+          PY
+      - name: Publicar
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          if ! git diff --cached --quiet; then
+            git commit -m "Organiza ferramentas fiscais em aba ao lado de Notas XML"
+            git push
+          fi
