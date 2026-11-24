@@ -1,0 +1,54 @@
+name: Corrigir cartão Serviços Prestados PDF
+on:
+  push:
+    paths: ['.github/workflows/corrigir-servicos-pdf.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Posicionar Serviços Prestados PDF na aba Ferramentas
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          path=Path('index.html')
+          s=path.read_text(encoding='utf-8')
+          assert Path('servicos-prestados.html').exists(),'Arquivo da ferramenta não encontrado'
+          start=s.find('id="ferramentas"')
+          assert start>=0,'Nova aba Ferramentas ausente'
+          end=s.find('</section>',start)
+          assert end>start,'Final da aba Ferramentas não encontrado'
+          block=s[start:end]
+          # Remover somente cartão prévio para evitar duplicação; manter links nas demais abas.
+          pattern=r'<details\b[^>]*>\s*<summary\b[^>]*>Serviços Prestados\s*[·-]\s*PDF</summary>.*?</details>'
+          block,n=re.subn(pattern,'',block,flags=re.S|re.I)
+          print('Cartões anteriores da ferramenta:',n)
+          if n>1:raise ValueError('Duplicações inesperadas: revisão necessária')
+          card='''<details class="ferramenta-card" id="ferramenta-servicos-pdf">
+          <summary>Serviços Prestados · PDF</summary>
+          <p>Importe e confira documentos de serviços prestados, com análise dos valores e relatório em PDF.</p>
+          <a class="ferramenta-open" href="./servicos-prestados.html">Abrir Serviços Prestados · PDF</a>
+          </details>'''
+          first=block.find('<div class="ferramentas-grid">')
+          if first<0:raise ValueError('Grade principal de Ferramentas não identificada')
+          offset=first+len('<div class="ferramentas-grid">')
+          block=block[:offset]+'\n'+card+'\n'+block[offset:]
+          s=s[:start]+block+s[end:]
+          assert s.count('id="ferramenta-servicos-pdf"')==1
+          assert s.count('href="./servicos-prestados.html"')>=1
+          path.write_text(s,encoding='utf-8')
+          print('Serviços Prestados PDF visível como primeiro cartão na aba Ferramentas')
+          PY
+      - name: Publicar alteração no portal
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          if ! git diff --cached --quiet; then
+            git commit -m "Destaca Serviços Prestados PDF na aba Ferramentas"
+            git push
+          fi
