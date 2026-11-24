@@ -7,14 +7,14 @@ const get=(row,keys)=>{
  for(const key of keys){const v=m.get(key);if(v!==undefined&&v!==null&&String(v).trim()!=='')return String(v).trim()}
  return '';
 };
-export function prepareProducts(rows){
+export function prepareProducts(rows,firstLine=2){
  return rows.map((r,i)=>{
   const productCode=get(r,['coddoprod','codprod','codigoproduto','codigodoproduto','codproduto','coditem','codigo','sku']);
   const description=get(r,['descricao','descricaodoproduto','descritem','descrcompl','produto','xprod']);
   const suppliedNcm=digits(get(r,['ncm','ncminformado','codncm']));
   const enteredCorrect=digits(get(r,['ncmcorreto']));
   if(!productCode&&!description&&!suppliedNcm)return null;
-  return {row:i+2,productCode,description,suppliedNcm,enteredCorrect};
+  return {row:i+firstLine,productCode,description,suppliedNcm,enteredCorrect};
  }).filter(Boolean);
 }
 // Construir apenas uma vez por lote; filtrar vigência também apenas uma vez.
@@ -27,7 +27,7 @@ export function createNcmIndex(catalog,date='2026-11-24'){
   if(!isValidOn(entry,date))continue;
   const id=records.length;records.push(entry);
   const keys=new Set();
-  for(const word of tokens(entry.description)){
+  for(const word of new Set([...tokens(entry.description),...tokens(entry.context||'')])){
    keys.add(word);
    // Inclusão de prefixos para plural e flexões: "camiseta" encontra "camisetas".
    for(let n=4;n<word.length&&n<=14;n++)keys.add(word.slice(0,n));
@@ -68,14 +68,18 @@ export function evaluateProduct(p,catalogOrIndex,date='2026-11-24'){
  const currentExists=!!existing&&isValidOn(existing,date);
  const candidate=p.description?indexedSuggestions(p.description,index,2):[];
  const first=candidate[0]||null,second=candidate[1]||null;
- const ambiguous=!first||first.match<60||(second&&first.match-second.match<15);
+ const gap=first&&second?first.match-second.match:100;
+ const ambiguous=!first||first.match<55||gap<7;
  const suggested=ambiguous?'':first.code;
  const correct=p.enteredCorrect||suggested;
+ const candidateCode=first?.code||'';
+ const officialContext=first?.context||'';
+ const reason=!first?'Sem descrição oficial suficientemente semelhante; verificar composição, material e função':!suggested?'Candidato textual '+candidateCode+' precisa de revisão; outras classificações podem ser possíveis':'Sugestão textual '+candidateCode+' encontrada na base oficial; confirmar regras legais, características técnicas e NESH';
  const status=p.enteredCorrect?'Informado na planilha; conferir':!suggested?'Sem correspondência suficiente; revisar':'Sugestão textual; revisar';
  return {...p,correct,autoSuggestion:suggested,match:first?.match??null,officialDescription:first?.description||'',
   currentExists,
   originalStatus:!p.suppliedNcm?'NCM original não informado':!existing?'NCM original não encontrado na base':currentExists?'NCM original vigente na data consultada':'NCM original fora da vigência na data consultada',
-  status,alternatives:candidate.map(x=>x.code)};
+  status,reason,candidateCode,officialContext,originalDescription:existing?.description||'',originalContext:existing?.context||'',alternatives:candidate.map(x=>x.code)};
 }
 export function outputRows(items){return items.map(x=>({
  'Cód. do prod':x.productCode,
