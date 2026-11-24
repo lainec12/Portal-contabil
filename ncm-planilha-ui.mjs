@@ -21,6 +21,8 @@ function filtered(){
  if(choice==='sugestoes')return rows.filter(x=>!!x.autoSuggestion);
  if(choice==='pendentes')return rows.filter(x=>!x.correct);
  if(choice==='originais')return rows.filter(x=>!String(x.originalStatus||'').includes('vigente'));
+ if(choice==='divergentes')return rows.filter(x=>x.technicalStatus==='possível incompatibilidade');
+ if(choice==='insuficientes')return rows.filter(x=>x.technicalStatus==='informações insuficientes');
  return rows;
 }
 function render(){
@@ -37,8 +39,8 @@ function render(){
   input.oninput=()=>{item.correct=input.value.replace(/\D/g,'').slice(0,8);input.value=item.correct};
   td.append(input);tr.append(td);
   const note=document.createElement('td'),strong=document.createElement('strong'),small=document.createElement('p');
-  strong.textContent=item.status||'Revisão necessária';strong.style.color=item.autoSuggestion?'var(--accent)':'var(--muted)';
-  small.textContent=(item.originalStatus||'')+' · '+(item.reason||'');small.className='muted';
+  strong.textContent=(item.technicalStatus||'Análise técnica pendente')+' · '+(item.status||'Revisão necessária');strong.style.color=item.technicalStatus==='possível incompatibilidade'?'#c2410c':item.autoSuggestion?'var(--accent)':'var(--muted)';
+  small.textContent=(item.technicalProblem||'')+' · '+(item.missingAttributes?'Confirmar: '+item.missingAttributes+' · ':'')+(item.originalStatus||'');small.className='muted';
   small.style.fontSize='12px';note.append(strong,small);tr.append(note);
   frag.append(tr);
  }
@@ -48,7 +50,8 @@ function render(){
 }
 function summary(){
  const total=rows.length,suggested=rows.filter(x=>x.autoSuggestion).length,valid=rows.filter(x=>String(x.originalStatus||'').includes('vigente')).length,pending=rows.filter(x=>!x.correct).length;
- const values=[['Produtos analisados',total],['Novas sugestões',suggested],['NCMs originais vigentes',valid],['Sem proposta',pending]];
+ const conflict=rows.filter(x=>x.technicalStatus==='possível incompatibilidade').length,insufficient=rows.filter(x=>x.technicalStatus==='informações insuficientes').length;
+ const values=[['Produtos analisados',total],['Possível incompatibilidade',conflict],['Dados técnicos insuficientes',insufficient],['Novas propostas',suggested],['NCMs existentes',valid],['Sem proposta',pending]];
  $('ncm-resumo').replaceChildren(...values.map(([label,value])=>{
   const box=document.createElement('div'),name=document.createElement('span'),number=document.createElement('strong');
   box.className='ncm-summary-card';name.textContent=label;number.textContent=fmt(value);box.append(name,number);return box;
@@ -67,7 +70,7 @@ function workerForTask(){
   if(d.type==='batch'){rows.push(...d.rows);update('Analisando produtos e conferindo os NCMs...',d.percent,d.processed,d.total);return}
   if(d.type==='done'){
    complete=true;page=0;summary();render();$('ncm-sheet-result').hidden=false;
-   stop('Concluído: '+fmt(d.processed)+' produtos · '+fmt(d.filled)+' NCMs propostos · '+fmt(d.validOriginal)+' códigos originais vigentes mantidos · '+fmt(d.suggested)+' propostas novas. Classificação fiscal ainda exige conferência.');
+   stop('Concluído: '+fmt(d.processed)+' produtos examinados · '+fmt(d.divergent)+' divergências técnicas potenciais · '+fmt(d.insufficient)+' descrições sem dados completos · '+fmt(d.suggested)+' novas propostas. Consulte a aba Auditoria NCM do Excel.');
    return;
   }
   if(d.type==='exported'){
