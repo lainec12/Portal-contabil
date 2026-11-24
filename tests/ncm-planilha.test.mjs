@@ -21,3 +21,5 @@ test('respeita valor manual existente em NCM correto',()=>{
  const row=evaluateProduct(prepareProducts([{'Cód. do prod':'P3','Descrição':'Camisetas de algodão','NCM':'61091000','NCM correto':'94036000'}])[0],catalog);
  assert.equal(row.correct,'94036000');assert.equal(row.suppliedNcm,'61091000');
 });
+
+test('reconhece código de produto com ponto e espaços no cabeçalho',()=>assert.equal(prepareProducts([{'Cód. do prod':'0007','Descrição':'Teste','NCM':'12345678'}])[0].productCode,'0007'));
