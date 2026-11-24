@@ -1,0 +1,22 @@
+name: Diagnosticar menu do portal
+on:
+  push:
+    paths: ['.github/workflows/diagnosticar-menu.yml']
+  workflow_dispatch:
+jobs:
+  diagnostico:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Examinar pontos de integração
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          s=Path('index.html').read_text(encoding='utf-8')
+          print('TAMANHO',len(s))
+          for term in ('assistente-operacoes-fiscais.html','Ferramentas','ferramentas','relatorio-xml-creditos.html'):
+              ms=list(re.finditer(re.escape(term),s,re.I))
+              print('TERMO',term,'TOTAL',len(ms))
+              for m in ms[:5]:print('TRECHO',repr(s[max(0,m.start()-350):m.end()+350]))
+          PY
