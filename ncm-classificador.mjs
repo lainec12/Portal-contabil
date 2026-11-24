@@ -1,5 +1,5 @@
 // NCM: pesquisa assistida por correspondência textual, sem classificação fiscal automática.
-// A tabela é importada pelo usuário do Portal Único (JSON ou XLSX).
+// A tabela fica armazenada no próprio repositório e pode ser substituída manualmente por arquivo oficial.
 export const norm = v => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
 export const digits = value => String(value ?? '').replace(/\D/g,'');
 const stop = new Set('de da do dos das para por com sem uma um em ao aos as os no na nos nas e ou outros outras partes aparelhos produtos mercadorias semelhantes tipos tipo'.split(' '));
@@ -12,7 +12,7 @@ export function extractNCMS(json) {
   if(!data||typeof data!=='object')return;
   const code=digits(data.codigo ?? data.Codigo ?? data.ncm ?? data.NCM ?? data.codigoNcm ?? data.CodigoNcm ?? '');
   const description=data.descricao ?? data.Descricao ?? data.description ?? data.texto ?? data.Texto ?? '';
-  if(code.length===8 && typeof description==='string'&&description.trim())out.set(code,{code,description:description.trim()});
+  if(code.length===8 && typeof description==='string'&&description.trim())out.set(code,{code,description:description.trim(),start:data.Data_Inicio??data.dataInicio??data.dataInicioVigencia??null,end:data.Data_Fim??data.dataFim??null});
   for(const [key,val] of Object.entries(data)){
     if(val&&typeof val==='object')walk(val,depth+1);
   }
@@ -31,4 +31,15 @@ export function suggest(query,list,limit=12) {
  const numeric=digits(query);
  if(numeric.length>=4 && /^\d[\d .-]*$/.test(query.trim()))return list.filter(x=>x.code.startsWith(numeric)).slice(0,limit).map(x=>({...x,match:100}));
  return list.map(x=>({...x,match:score(query,x)})).filter(x=>x.match>=25).sort((a,b)=>b.match-a.match||a.code.localeCompare(b.code)).slice(0,limit);
+}
+
+export function parseBrazilDate(value) {
+ const m=String(value??'').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+ if(!m)return null;
+ return m[3]+'-'+m[2]+'-'+m[1];
+}
+export function isValidOn(record,isoDate) {
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(String(isoDate??'')))return false;
+ const start=parseBrazilDate(record?.start),end=parseBrazilDate(record?.end);
+ return (!start||isoDate>=start)&&(!end||isoDate<=end);
 }
