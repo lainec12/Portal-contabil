@@ -1,0 +1,61 @@
+name: Integrar conferência tripla de documentos fiscais
+on:
+  push:
+    paths: ['.github/workflows/integrar-conferencia-tripla.yml','conferencia-tripla*','tests/conferencia-tripla.test.mjs']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: conferencia-tripla-integracao
+  cancel-in-progress: true
+jobs:
+  integrar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Testar módulo e regressões
+        run: |
+          node --check conferencia-tripla.mjs
+          node --check conferencia-tripla-ui.mjs
+          node --test tests/conferencia-tripla.test.mjs
+          node --test tests/*.test.mjs
+      - name: Acrescentar acesso sem alterar conferências existentes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          navstart=s.find('<nav class="links" id="mainNav"')
+          navend=s.find('</nav>',navstart)
+          assert navstart>=0 and navend>navstart, 'Menu não localizado'
+          target='./conferencia-tripla.html'
+          nav=s[navstart:navend]
+          if target not in nav:
+            match=re.search(r'<a\b[^>]*href="#conferencia-notas"[^>]*>.*?</a>',nav,re.S)
+            assert match, 'Aba de conferência não localizada'
+            nav=nav[:match.end()]+'<a href="./conferencia-tripla.html">XML × SPED × Livro</a>'+nav[match.end():]
+            s=s[:navstart]+nav+s[navend:]
+          if 'id="atalho-conferencia-tripla"' not in s:
+            m=re.search(r'<section\b[^>]*\bid="conferencia-notas"[^>]*>',s)
+            if not m:
+              m=re.search(r'<[a-z]+\b[^>]*\bid="conferencia-notas"[^>]*>',s)
+            assert m,'Seção de conferência não localizada'
+            link='<div id="atalho-conferencia-tripla" style="margin:12px 0"><a href="./conferencia-tripla.html" style="display:inline-block;padding:12px 16px;border-radius:10px;background:#7042a4;color:white;font-weight:750;text-decoration:none">Conferência integrada XML × SPED × Livro Fiscal</a><p>Compare chaves, situações, valores, CFOP, CST e impostos. Relatório de diferenças em Excel e PDF.</p></div>'
+            s=s[:m.end()]+'\n'+link+'\n'+s[m.end():]
+          assert s.count('id="atalho-conferencia-tripla"')==1
+          p.write_text(s,encoding='utf-8')
+          print('Atalho incluído, sem substituir recursos existentes.')
+          PY
+      - name: Salvar integração
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          if ! git diff --cached --quiet; then
+            git commit -m "Adiciona conferência XML SPED Livro ao menu e à conferência de notas"
+            git push
+          fi
