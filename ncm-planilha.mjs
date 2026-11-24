@@ -79,7 +79,7 @@ function triage(description,index,date){
  }
  return null;
 }
-export function evaluateProduct(p,catalogOrIndex,date='2026-11-24'){
+export function evaluateProduct(p,catalogOrIndex,date='2026-11-24',company={}){
  const index=Array.isArray(catalogOrIndex)?createNcmIndex(catalogOrIndex,date):catalogOrIndex;
  if(!index||!(index.byCode instanceof Map))throw new Error('Base NCM inválida');
  const original=index.byCode.get(p.suppliedNcm);
@@ -87,7 +87,15 @@ export function evaluateProduct(p,catalogOrIndex,date='2026-11-24'){
  const technical=auditTechnicalProduct({description:p.description,ncm:p.suppliedNcm,entry:original,date});
  const manually=index.byCode.get(p.enteredCorrect);
  const manualValid=!!manually&&isValidOn(manually,date);
- const candidates=p.description?indexedSuggestions(p.description,index,3):[];
+ const candidates=p.description?indexedSuggestions(p.description,index,4):[];
+ // CNAE só desempata candidatos textualmente próximos, nunca cria enquadramento ou valida o código.
+ const sector=norm(company.activity||'');
+ const automotive=/automotiv|veicul|autopec|caminh|motocicl/.test(sector);
+ if(automotive&&candidates.length>1){
+  const best=candidates[0].match;
+  const bias=x=>x.match>=best-4&&/automov|veicul|motor de pistao|automotiv/.test(norm(x.description+' '+x.context))?3:0;
+  candidates.sort((a,b)=>b.match+bias(b)-a.match-bias(a)||a.code.localeCompare(b.code));
+ }
  const first=candidates[0]||null;
  const gap=first&&candidates[1]?first.match-candidates[1].match:100;
  const strong=first&&first.match>=55&&gap>=7?first:null;
@@ -112,16 +120,17 @@ export function evaluateProduct(p,catalogOrIndex,date='2026-11-24'){
  const provisional=manualValid?manually:alternativeForConflict||fallback;
  const correct=provisional?.code||'';
  const isTriage=!manualValid&&(!currentExists||!!alternativeForConflict)&&!!correct;
- const status=manualValid?'NCM informado na coluna de revisão — conferir tecnicamente':alternativeForConflict?'Proposta alternativa por incompatibilidade técnica — REVISÃO OBRIGATÓRIA':technical.status==='possível incompatibilidade'?'POSSÍVEL DIVERGÊNCIA: NCM original mantido só para investigação':currentExists?'NCM existente, verificar adequação técnica':isTriage?'Nova proposta NCM de triagem — REVISÃO OBRIGATÓRIA':'Sem dados para propor NCM válido — REVISÃO OBRIGATÓRIA';
+ const status=manualValid?'NCM informado na coluna de revisão — conferir tecnicamente':alternativeForConflict?'Proposta alternativa por incompatibilidade técnica — REVISÃO OBRIGATÓRIA':technical.status==='possível incompatibilidade'?'POSSÍVEL DIVERGÊNCIA: NCM original mantido só para investigação':currentExists?'NCM existente — conferir enquadramento técnico':isTriage?'Nova proposta NCM de triagem — REVISÃO OBRIGATÓRIA':'Sem dados para propor NCM válido — REVISÃO OBRIGATÓRIA';
  const reason=manualValid?'Código preenchido pelo operador e presente na base vigente. A adequação ao produto não foi verificada.':
-  currentExists?'NCM informado consta na base oficial vigente. Mantido como proposta, NÃO como classificação confirmada. Validar composição, função, matéria e NESH.':
+  currentExists?(alternativeForConflict?'Proposta alternativa por incompatibilidade técnica, NÃO como classificação confirmada.':'NCM informado consta na base oficial vigente. Mantido como proposta, NÃO como classificação confirmada. Validar composição, função, matéria e NESH.'):
   rule?.rule||((strong&&first)?'Sugestão textual da tabela NCM; conferir função, composição, exclusões e NESH.':fallback?.rule||'Nenhum código seguro a indicar com base nos dados disponíveis.');
  const options=[...new Set([correct,...technicalAlternatives.map(x=>x.code),...candidates.map(x=>x.code)].filter(Boolean))].slice(0,5);
  const reasonTechnical=technical.problem+(technical.missing.length?' Características a confirmar: '+technical.missing.join('; '):'');
+ const obs=!correct?'REVISÃO OBRIGATÓRIA — sem proposta suficiente. '+technical.missing[0]:!currentExists?'ATENÇÃO — NCM original inválido; conferir proposta. '+technical.missing[0]:technical.status==='possível incompatibilidade'?'ATENÇÃO — possível NCM incorreto. '+technical.problem:technical.status==='informações insuficientes'?'ATENÇÃO — '+technical.missing[0]:'CONFERIR — compatibilidade preliminar; '+technical.missing[0];
  return {...p,correct,autoSuggestion:isTriage?correct:'',currentExists,
-  match:currentExists?score(p.description,original):first?.match??null,
-  candidateCode:correct,officialDescription:fallback?.description||'',
-  officialContext:fallback?.context||'',
+  match:provisional?score(p.description,provisional):null,
+  candidateCode:correct,officialDescription:provisional?.description||'',
+  officialContext:provisional?.context||'',obs,
   originalDescription:original?.description||'',
   originalContext:original?.context||'',
   originalStatus:!p.suppliedNcm?'NCM original não informado':!original?'NCM original não encontrado na base':currentExists?'NCM original vigente na data consultada':'NCM original fora da vigência na data consultada',
