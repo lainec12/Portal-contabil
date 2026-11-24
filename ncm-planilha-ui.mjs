@@ -1,121 +1,115 @@
-import {prepareProducts,evaluateProduct,outputRows,createNcmIndex} from './ncm-planilha.mjs';
-const $=id=>document.getElementById(id);
+// Até 100.000 produtos: análise e exportação em Worker, sem bloquear a interface.
+const $=id=>document.getElementById(id),fmt=n=>Number(n||0).toLocaleString('pt-BR');
 const fields=['Cód. do prod','Descrição','NCM','NCM correto'];
-const PAGE_SIZE=75;
-const status=$('ncm-sheet-status'),progress=$('ncm-progresso');
-const button=$('ncm-importar'),cancel=$('ncm-cancelar');
-let analyses=[],currentPage=0,runId=0,busy=false;
-const yieldUI=()=>new Promise(done=>setTimeout(done,16));
-function workbook(){
- if(!globalThis.XLSX)throw Error('Biblioteca Excel indisponível. Atualize a página e tente novamente.');
- return globalThis.XLSX;
+const SIZE=75,MAX_FILE=120*1024*1024;
+const status=$('ncm-sheet-status'),progress=$('ncm-progresso'),counter=$('ncm-contador-progresso');
+const start=$('ncm-importar'),cancel=$('ncm-cancelar'),download=$('ncm-baixar');
+let rows=[],shown=[],page=0,worker=null,working='',complete=false;
+const yieldUI=()=>new Promise(r=>setTimeout(r,15));
+function state(kind=''){
+ working=kind;start.disabled=!!kind;cancel.hidden=!kind;download.disabled=!!kind||!complete;
+ cancel.textContent=kind==='export'?'Cancelar exportação':'Cancelar análise';
+ progress.hidden=!kind;counter.hidden=!kind;
+ start.setAttribute('aria-busy',kind?'true':'false');
 }
-function downloadXlsx(rows,file){
- const x=workbook(),ws=x.utils.json_to_sheet(rows,{header:fields});
- ws['!cols']=[{wch:21},{wch:54},{wch:17},{wch:20}];
- const wb=x.utils.book_new();x.utils.book_append_sheet(wb,ws,'Classificação NCM');
- x.writeFile(wb,file);
+function update(message,percent=0,n=0,total=0){
+ status.textContent=message;progress.value=Math.max(0,Math.min(100,percent));
+ counter.textContent=Math.round(percent)+'%'+(total?' · '+fmt(n)+' de '+fmt(total)+' produtos':' · '+message);
 }
-function busyState(value){
- busy=value;button.disabled=value;cancel.hidden=!value;
- button.setAttribute('aria-busy',value?'true':'false');
- progress.hidden=!value;
- if(!value)progress.value=0;
+function filtered(){
+ const choice=$('ncm-filtro').value;
+ if(choice==='sugestoes')return rows.filter(x=>!!x.autoSuggestion);
+ if(choice==='pendentes')return rows.filter(x=>!x.correct);
+ if(choice==='originais')return rows.filter(x=>!String(x.originalStatus||'').includes('vigente'));
+ return rows;
 }
-function inform(message,percentage=0){
- status.textContent=message;
- if(busy){progress.value=Math.max(0,Math.min(100,percentage));}
-}
-function renderPage(){
- const start=currentPage*PAGE_SIZE;
- const slice=analyses.slice(start,start+PAGE_SIZE);
- const fragment=document.createDocumentFragment();
- for(const p of slice){
+function render(){
+ shown=filtered();
+ const pages=Math.max(1,Math.ceil(shown.length/SIZE));page=Math.min(page,pages-1);
+ const frag=document.createDocumentFragment();
+ for(const item of shown.slice(page*SIZE,page*SIZE+SIZE)){
   const tr=document.createElement('tr');
-  const add=text=>{const td=document.createElement('td');td.textContent=text;tr.append(td);};
-  add(p.productCode);add(p.description);add(p.suppliedNcm);
-  const cell=document.createElement('td'),input=document.createElement('input');
-  input.type='text';input.value=p.correct;input.maxLength=8;
-  input.placeholder='Revisar NCM';input.style.width='118px';input.style.minWidth='100px';
-  input.setAttribute('aria-label','NCM correto do produto '+(p.productCode||p.row));
-  input.addEventListener('input',()=>{
-   p.correct=input.value.replace(/\D/g,'').slice(0,8);
-   input.value=p.correct;
-  });
-  cell.append(input);tr.append(cell);
-  add(p.originalStatus+' | '+p.status+(p.match!==null?' ('+p.match+'% textual)':''));
-  fragment.append(tr);
+  const add=v=>{const td=document.createElement('td');td.textContent=v||'';tr.append(td)};
+  add(item.productCode);add(item.description);add(item.suppliedNcm);
+  const td=document.createElement('td'),input=document.createElement('input');
+  input.value=item.correct||'';input.maxLength=8;input.inputMode='numeric';input.style.width='115px';
+  input.placeholder='Conferir NCM';input.setAttribute('aria-label','NCM correto '+item.productCode);
+  input.oninput=()=>{item.correct=input.value.replace(/\D/g,'').slice(0,8);input.value=item.correct};
+  td.append(input);tr.append(td);
+  const note=document.createElement('td'),strong=document.createElement('strong'),small=document.createElement('p');
+  strong.textContent=item.status||'Revisão necessária';strong.style.color=item.autoSuggestion?'var(--accent)':'var(--muted)';
+  small.textContent=(item.originalStatus||'')+' · '+(item.reason||'');small.className='muted';
+  small.style.fontSize='12px';note.append(strong,small);tr.append(note);
+  frag.append(tr);
  }
- $('ncm-sheet-table').replaceChildren(fragment);
- const pages=Math.max(1,Math.ceil(analyses.length/PAGE_SIZE));
- $('ncm-pagina-info').textContent='Página '+(currentPage+1)+' de '+pages+' — itens '+(start+1)+' a '+Math.min(start+PAGE_SIZE,analyses.length)+' de '+analyses.length;
- $('ncm-prev').disabled=currentPage===0;
- $('ncm-next').disabled=currentPage>=pages-1;
+ $('ncm-sheet-table').replaceChildren(frag);
+ $('ncm-pagina-info').textContent='Página '+fmt(page+1)+' de '+fmt(pages)+' — '+fmt(shown.length)+' produtos no filtro';
+ $('ncm-prev').disabled=page===0;$('ncm-next').disabled=page>=pages-1;
 }
-$('ncm-prev').onclick=()=>{if(currentPage>0){currentPage--;renderPage();}};
-$('ncm-next').onclick=()=>{if((currentPage+1)*PAGE_SIZE<analyses.length){currentPage++;renderPage();}};
+function summary(){
+ const total=rows.length,suggested=rows.filter(x=>x.autoSuggestion).length,valid=rows.filter(x=>String(x.originalStatus||'').includes('vigente')).length,pending=rows.filter(x=>!x.correct).length;
+ const values=[['Produtos analisados',total],['Sugestões para revisão',suggested],['NCMs originais vigentes',valid],['Sem proposta segura',pending]];
+ $('ncm-resumo').replaceChildren(...values.map(([label,value])=>{
+  const box=document.createElement('div'),name=document.createElement('span'),number=document.createElement('strong');
+  box.className='ncm-summary-card';name.textContent=label;number.textContent=fmt(value);box.append(name,number);return box;
+ }));
+}
+function stop(message){
+ if(worker){worker.terminate();worker=null}
+ state();status.textContent=message;
+}
+function workerForTask(){
+ worker=new Worker('./ncm-batch-worker.js');
+ worker.onerror=e=>stop('Erro no processamento: '+(e.message||'Falha no navegador'));
+ worker.onmessage=e=>{
+  const d=e.data||{};
+  if(d.type==='phase'){update(d.label,d.percent);return}
+  if(d.type==='batch'){rows.push(...d.rows);update('Analisando produtos e conferindo os NCMs...',d.percent,d.processed,d.total);return}
+  if(d.type==='done'){
+   complete=true;page=0;summary();render();$('ncm-sheet-result').hidden=false;
+   stop('Concluído: '+fmt(d.processed)+' produtos, '+fmt(d.suggested)+' sugestões textuais para revisão. Baixe o Excel com auditoria.');
+   return;
+  }
+  if(d.type==='exported'){
+   const u=URL.createObjectURL(new Blob([d.buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+   const a=document.createElement('a');a.href=u;a.download='fiscora-ncm-classificacao-com-auditoria.xlsx';a.click();setTimeout(()=>URL.revokeObjectURL(u),5000);
+   stop('Excel exportado com Classificação NCM, Auditoria e Resumo.');return;
+  }
+  if(d.type==='error'){stop('Falha no processamento: '+d.message)}
+ };
+}
+$('ncm-prev').onclick=()=>{if(page>0){page--;render()}};
+$('ncm-next').onclick=()=>{if((page+1)*SIZE<shown.length){page++;render()}};
+$('ncm-filtro').onchange=()=>{page=0;render()};
 $('ncm-modelo').onclick=()=>{
- try{downloadXlsx([Object.fromEntries(fields.map(k=>[k,'']))],'modelo-classificacao-ncm.xlsx')}
- catch(e){status.textContent='Não foi possível gerar modelo: '+e.message}
+ try{const x=globalThis.XLSX,ws=x.utils.aoa_to_sheet([fields,['','','','']]),book=x.utils.book_new();
+ ws['!cols']=[{wch:21},{wch:56},{wch:18},{wch:20}];x.utils.book_append_sheet(book,ws,'Classificação NCM');x.writeFile(book,'modelo-classificacao-ncm.xlsx')}
+ catch(e){status.textContent='Erro no modelo: '+e.message}
 };
-cancel.onclick=()=>{runId++;inform('Análise cancelada. Nenhuma alteração foi exportada.');busyState(false);};
-button.onclick=async()=>{
- if(busy)return;
- const file=$('ncm-planilha-arquivo').files?.[0];
- if(!file){status.textContent='Selecione a planilha de produtos.';return;}
- const ownId=++runId;
- analyses=[];$('ncm-sheet-result').hidden=true;
- busyState(true);inform('Iniciando: verificando a base NCM salva...',1);
+cancel.onclick=()=>{
+ if(working==='analyze'){rows=[];complete=false;$('ncm-sheet-result').hidden=true}
+ stop('Operação cancelada. Você pode iniciar novamente.');
+};
+start.onclick=async()=>{
+ if(working)return;
+ const file=$('ncm-planilha-arquivo').files?.[0];if(!file){status.textContent='Selecione sua planilha de produtos.';return}
+ if(file.size>MAX_FILE){status.textContent='Arquivo acima de 120 MB. Divida em partes menores.';return}
+ rows=[];complete=false;$('ncm-sheet-result').hidden=true;state('analyze');update('Carregando a base oficial NCM...',1);
  await yieldUI();
  try{
   if(globalThis.fiscoraNcmReady)await globalThis.fiscoraNcmReady;
-  if(ownId!==runId)return;
+  if(working!=='analyze')return;
   const catalog=globalThis.fiscoraNcmCatalog;
-  if(!Array.isArray(catalog)||!catalog.length)throw Error('Base NCM indisponível. Atualize a página ou importe outra base oficial.');
-  if(file.size>15e6)throw Error('Planilha maior que 15 MB. Divida em partes menores.');
-  inform('Lendo os dados da planilha...',5);await yieldUI();
-  const x=workbook(),w=x.read(await file.arrayBuffer(),{type:'array',cellDates:false});
-  if(ownId!==runId)return;
-  const sheet=w.Sheets[w.SheetNames[0]];
-  if(!sheet)throw Error('Planilha sem nenhuma aba.');
-  const rows=x.utils.sheet_to_json(sheet,{defval:'',raw:false});
-  if(rows.length>10000)throw Error('Mais de 10.000 produtos. Divida em lotes.');
-  inform('Organizando '+rows.length+' linhas e validando cabeçalhos...',12);await yieldUI();
-  const products=prepareProducts(rows);
-  if(!products.length)throw Error('Nenhum produto encontrado. Confira os cabeçalhos Cód. do prod, Descrição e NCM.');
-  inform('Criando índice de '+catalog.length+' NCMs (uma única vez)...',18);await yieldUI();
-  const date=globalThis.fiscoraNcmReferenceDate||'2026-11-24';
-  const index=createNcmIndex(catalog,date);
-  if(ownId!==runId)return;
-  inform('Classificando produtos por lotes...',22);await yieldUI();
-  const results=[];
-  const CHUNK=25;
-  for(let i=0;i<products.length;i+=CHUNK){
-   if(ownId!==runId)return;
-   const batch=products.slice(i,i+CHUNK);
-   for(const item of batch)results.push(evaluateProduct(item,index,date));
-   const completed=Math.min(i+CHUNK,products.length);
-   inform('Analisando '+completed+' de '+products.length+' produtos...',22+70*completed/products.length);
-   await yieldUI();
-  }
-  if(ownId!==runId)return;
-  analyses=results;currentPage=0;
-  inform('Preparando resultado e edição da coluna NCM correto...',96);await yieldUI();
-  renderPage();$('ncm-sheet-result').hidden=false;
-  const suggestions=analyses.filter(p=>p.autoSuggestion).length;
-  const pending=analyses.length-suggestions;
-  inform(analyses.length+' produtos analisados. '+suggestions+' sugestões para revisão; '+pending+' sem sugestão segura. Confira e baixe o Excel.',100);
- }catch(e){if(ownId===runId){analyses=[];$('ncm-sheet-result').hidden=true;status.textContent='Falha ao processar: '+e.message;}}
- finally{if(ownId===runId)busyState(false);}
+  if(!Array.isArray(catalog)||!catalog.length)throw Error('Base NCM indisponível. Recarregue a página.');
+  update('Preparando o processamento paralelo...',2);
+  const buffer=await file.arrayBuffer();if(working!=='analyze')return;
+  workerForTask();
+  worker.postMessage({type:'analyze',buffer,catalog,date:globalThis.fiscoraNcmReferenceDate||'2026-11-24'},[buffer]);
+ }catch(e){stop('Erro ao iniciar: '+e.message)}
 };
-$('ncm-baixar').onclick=async()=>{
- if(!analyses.length)return;
- $('ncm-baixar').disabled=true;
- status.textContent='Preparando Excel com '+analyses.length+' produtos...';
- await yieldUI();
- try{
-  downloadXlsx(outputRows(analyses),'classificacao-ncm-revisao.xlsx');
-  status.textContent='Excel exportado com quatro colunas. Revise os NCMs propostos antes de usar.';
- }catch(e){status.textContent='Erro ao exportar: '+e.message;}
- finally{$('ncm-baixar').disabled=false;}
+download.onclick=async()=>{
+ if(working||!complete||!rows.length)return;
+ state('export');update('Preparando Excel com auditoria e resumo...',1);await yieldUI();
+ try{workerForTask();worker.postMessage({type:'export',rows,date:globalThis.fiscoraNcmReferenceDate||'2026-11-24',source:'Fiscora: base oficial de 24/11/2026'});}
+ catch(e){stop('Erro ao exportar: '+e.message)}
 };
