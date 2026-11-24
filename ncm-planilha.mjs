@@ -61,25 +61,61 @@ function indexedSuggestions(description,index,limit=2){
  index.cache.set(query,best);
  return best.slice(0,limit);
 }
+// Heurísticas de TRIAGEM, não decisões fiscais. Aplicadas somente quando o NCM original não existe.
+// Toda regra demanda conferir o produto real e sua documentação técnica.
+const triageRules=[
+ {pattern:/motor (de )?(partida|arranque)/,code:'85114000',detail:'Identificação textual de motor de partida; conferir se é motor completo.'},
+ {pattern:/limpador universal|preparacao de limpeza/,code:'34025000',detail:'Possível preparação de limpeza para varejo; confirmar composição e apresentação.'},
+ {pattern:/eixo s\b|kit reparo.*eixo s/,code:'87083090',detail:'Possível parte de freio de veículo; verificar componentes do kit e aplicação.'},
+ {pattern:/flange.*cardan|cardan.*flange/,code:'87089990',detail:'Possível parte automotiva; conferir se outra posição de transmissão é mais específica.'},
+ {pattern:/suporte.*filtro.*diesel|suporte.*filtro.*combustivel/,code:'84219999',detail:'Possível parte de aparelho filtrante; verificar material, função e se é suporte genérico.'}
+];
+function triage(description,index,date){
+ const name=norm(description);
+ for(const rule of triageRules){
+  const entry=index.byCode.get(rule.code);
+  if(rule.pattern.test(name)&&entry&&isValidOn(entry,date))return {...entry,match:0,rule:rule.detail};
+ }
+ return null;
+}
 export function evaluateProduct(p,catalogOrIndex,date='2026-11-24'){
  const index=Array.isArray(catalogOrIndex)?createNcmIndex(catalogOrIndex,date):catalogOrIndex;
  if(!index||!(index.byCode instanceof Map))throw new Error('Base NCM inválida');
- const existing=index.byCode.get(p.suppliedNcm);
- const currentExists=!!existing&&isValidOn(existing,date);
- const candidate=p.description?indexedSuggestions(p.description,index,2):[];
- const first=candidate[0]||null,second=candidate[1]||null;
- const gap=first&&second?first.match-second.match:100;
- const ambiguous=!first||first.match<55||gap<7;
- const suggested=ambiguous?'':first.code;
- const correct=p.enteredCorrect||suggested;
- const candidateCode=first?.code||'';
- const officialContext=first?.context||'';
- const reason=!first?'Sem descrição oficial suficientemente semelhante; verificar composição, material e função':!suggested?'Candidato textual '+candidateCode+' precisa de revisão; outras classificações podem ser possíveis':'Sugestão textual '+candidateCode+' encontrada na base oficial; confirmar regras legais, características técnicas e NESH';
- const status=p.enteredCorrect?'Informado na planilha; conferir':!suggested?'Sem correspondência suficiente; revisar':'Sugestão textual; revisar';
- return {...p,correct,autoSuggestion:suggested,match:first?.match??null,officialDescription:first?.description||'',
-  currentExists,
-  originalStatus:!p.suppliedNcm?'NCM original não informado':!existing?'NCM original não encontrado na base':currentExists?'NCM original vigente na data consultada':'NCM original fora da vigência na data consultada',
-  status,reason,candidateCode,officialContext,originalDescription:existing?.description||'',originalContext:existing?.context||'',alternatives:candidate.map(x=>x.code)};
+ const original=index.byCode.get(p.suppliedNcm);
+ const currentExists=!!original&&isValidOn(original,date);
+ const manually=index.byCode.get(p.enteredCorrect);
+ const manualValid=!!manually&&isValidOn(manually,date);
+ const candidates=p.description?indexedSuggestions(p.description,index,3):[];
+ const first=candidates[0]||null;
+ const gap=first&&candidates[1]?first.match-candidates[1].match:100;
+ const strong=first&&first.match>=55&&gap>=7?first:null;
+ const rule=(!currentExists&&!manualValid)?triage(p.description,index,date):null;
+ const prefixFallback=()=>{
+  // Mesmo prefixo não significa que o código seja adequado ao produto: apenas hipótese para investigação.
+  if(!/^\d{8}$/.test(p.suppliedNcm))return null;
+  for(const length of [6,4]){
+   const choices=index.records.filter(x=>x.code.startsWith(p.suppliedNcm.slice(0,length)));
+   if(choices.length===1)return {...choices[0],match:0,rule:'Código candidato pelo mesmo prefixo da NCM anterior; sem comprovação fiscal.'};
+  }
+  return null;
+ };
+ const fallback=manualValid?manually:currentExists?original:rule||strong||prefixFallback();
+ const correct=fallback?.code||'';
+ const isTriage=!manualValid&&!currentExists&&!!correct;
+ const status=manualValid?'NCM correto já informado no arquivo — conferir':currentExists?'NCM original vigente mantido como proposta — conferir enquadramento':isTriage?'Nova proposta NCM de triagem — REVISÃO OBRIGATÓRIA':'Sem dados para propor NCM válido — REVISÃO OBRIGATÓRIA';
+ const reason=manualValid?'Código preenchido pelo operador e presente na base vigente. A adequação ao produto não foi verificada.':
+  currentExists?'NCM informado consta na base oficial vigente. Mantido como proposta, NÃO como classificação confirmada. Validar composição, função, matéria e NESH.':
+  rule?.rule||((strong&&first)?'Sugestão textual da tabela NCM; conferir função, composição, exclusões e NESH.':fallback?.rule||'Nenhum código seguro a indicar com base nos dados disponíveis.');
+ const options=[...new Set([correct,...candidates.map(x=>x.code)].filter(Boolean))].slice(0,4);
+ return {...p,correct,autoSuggestion:isTriage?correct:'',currentExists,
+  match:currentExists?score(p.description,original):first?.match??null,
+  candidateCode:correct,officialDescription:fallback?.description||'',
+  officialContext:fallback?.context||'',
+  originalDescription:original?.description||'',
+  originalContext:original?.context||'',
+  originalStatus:!p.suppliedNcm?'NCM original não informado':!original?'NCM original não encontrado na base':currentExists?'NCM original vigente na data consultada':'NCM original fora da vigência na data consultada',
+  status,reason,priority:isTriage?'ALTA: código original não vigente':currentExists?'Revisão da adequação ao produto':'Revisão obrigatória',
+  alternatives:options,sourceType:manualValid?'informado pelo usuário':currentExists?'NCM do cadastro mantido':rule?'heurística de triagem':strong?'texto da NCM':'prefixo estrutural'};
 }
 export function outputRows(items){return items.map(x=>({
  'Cód. do prod':x.productCode,
