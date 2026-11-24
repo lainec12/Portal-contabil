@@ -1,0 +1,46 @@
+name: Salvar base oficial NCM 24-11-2026
+on:
+  push:
+    paths: ['.github/workflows/salvar-base-ncm.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  salvar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Baixar versão oficial e conferir com a tabela fornecida
+        run: |
+          mkdir -p data
+          curl -fL --retry 3 --connect-timeout 20 --max-time 180 -H 'Accept: application/json' -H 'User-Agent: Fiscora-NCM-Repository/1.0' 'https://portalunico.siscomex.gov.br/classif/api/publico/nomenclatura/download/json' -o data/.ncm-download.json
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          data=json.loads(Path('data/.ncm-download.json').read_text(encoding='utf-8-sig'))
+          if not isinstance(data,dict):raise RuntimeError('Formato inesperado: não publicar')
+          records=data.get('Nomenclaturas')
+          if not isinstance(records,list):raise RuntimeError('Nomenclaturas ausentes')
+          eight=[x for x in records if len(''.join(c for c in str(x.get('Codigo','')) if c.isdigit()))==8]
+          print('Data:',data.get('Data_Ultima_Atualizacao_NCM'),'Ato:',data.get('Ato'),'Registros:',len(records),'NCMs:',len(eight))
+          # Tabelas enviadas para a ferramenta: 15.157 linhas, 10.516 NCMs, vigentes em 24/11/2026.
+          if len(records)!=15157 or len(eight)!=10516 or '24/11/2026' not in str(data.get('Data_Ultima_Atualizacao_NCM')):
+            raise RuntimeError('Download oficial não coincide com a edição enviada; nenhuma base será substituída.')
+          for item in eight:
+            if not item.get('Data_Inicio') or not item.get('Data_Fim') or not item.get('Descricao'):
+              raise RuntimeError('Dados essenciais de vigência ausentes')
+          Path('data/ncm-vigente-2026-11-24.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
+          # O arquivo XLSX de atualizações futuras fornecido tinha duas linhas de estado sem NCM de oito dígitos.
+          future={'fonte':'Tabela_NCM_Futura_20261124.xlsx fornecida','dataReferencia':'2026-11-24','observacao':'Arquivo fornecido não continha códigos NCM futuros válidos; consultar novas publicações para alterações posteriores.','nomenclaturas':[]}
+          Path('data/ncm-futura-2026-11-24.json').write_text(json.dumps(future,ensure_ascii=False,indent=2),encoding='utf-8')
+          Path('data/.ncm-download.json').unlink()
+          PY
+      - name: Armazenar base na versão do portal
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/ncm-vigente-2026-11-24.json data/ncm-futura-2026-11-24.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Salva snapshot NCM vigente e metadados de futura no Fiscora"
+            git push
+          fi
