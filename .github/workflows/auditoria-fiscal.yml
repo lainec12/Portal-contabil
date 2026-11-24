@@ -3,6 +3,8 @@ on:
   push:
     paths:
       - 'fiscal-analysis.mjs'
+      - 'pis-cofins*.mjs'
+      - 'pis-cofins.html'
       - 'ncm-*.mjs'
       - 'classificacao-ncm.html'
       - 'data/ncm-*.json'
@@ -19,8 +21,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Verificar sintaxe do módulo
-        run: node --check fiscal-analysis.mjs
+      - name: Verificar sintaxe dos módulos fiscais
+        run: |
+          node --check fiscal-analysis.mjs
+          node --check pis-cofins.mjs
+          node --check pis-cofins-ui.mjs
       - name: Verificar scripts NCM
         run: |
           node --check ncm-classificador.mjs
