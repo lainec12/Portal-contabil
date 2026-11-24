@@ -15,7 +15,7 @@ assert.throws(()=>company({...fixture,cnaes_secundarios:null}),/incompleta/);
 const fetched=await lookup(fixture.cnpj,undefined,async()=>({ok:true,json:async()=>fixture}));assert.equal(fetched.name,fixture.razao_social);
 await assert.rejects(lookup(fixture.cnpj,undefined,async()=>({ok:false,status:429})),/limitad|Limite/i);
 await assert.rejects(lookup(fixture.cnpj,undefined,async()=>({ok:false,status:404})),/não localizado/);
-await assert.rejects(lookup(fixture.cnpj,undefined,async()=>({ok:true,json:async()=>({...fixture,cnpj:'11222333000181'})})),/outro CNPJ/);
+await assert.rejects(lookup(fixture.cnpj,undefined,async()=>({ok:true,json:async()=>({...fixture,cnpj:'11222333000181'})})),/outro CNPJ|divergente de CNPJ/);
 assert.equal(exportRows([{cnpj:'00000000000191',state:'Erro'}])[0]['Possui atacado'],'Não concluído');
 console.log('CNPJ: validação numérica/alfanumérica, duplicatas, CNAEs, secundários, erros e exportação OK');
 
