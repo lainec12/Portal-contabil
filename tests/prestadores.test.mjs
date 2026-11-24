@@ -5,7 +5,7 @@ const catalog={municipalities:[['3550308','São Paulo','SP']]};
 const body={cnpj,municipio:'SAO PAULO',uf:'SP',codigo_municipio_ibge:3550308};
 const request=data=>async url=>{assert.equal(url,'https://brasilapi.com.br/api/cnpj/v1/'+cnpj);return {ok:true,json:async()=>data}};
 assert.equal((await consultarPrestador(cnpj,catalog,request(body))).code,'3550308');
-await assert.rejects(consultarPrestador(cnpj,catalog,request({...body,cnpj:'00000000000000'})),/corresponde/);
+await assert.rejects(consultarPrestador(cnpj,catalog,request({...body,cnpj:'00000000000000'})),/outro CNPJ|corresponde/);
 await assert.rejects(consultarPrestador(cnpj,catalog,request({...body,uf:'GO'})),/correspondência/);
 await assert.rejects(consultarPrestador('12345678901',catalog,request(body)),/exige/);
 await assert.rejects(consultarPrestador(cnpj,catalog,async()=>({ok:false,status:503})),/indisponível/);
