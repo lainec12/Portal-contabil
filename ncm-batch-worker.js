@@ -3,7 +3,7 @@ importScripts('./vendor/xlsx.full.min.js');
 const send=(type,extras={})=>self.postMessage({type,...extras});
 const fields=['Cód. do prod','Descrição','NCM','NCM correto'];
 const sheet=(data,cols)=>{const ws=self.XLSX.utils.aoa_to_sheet(data,{dense:true});ws['!cols']=cols.map(w=>({wch:w}));ws['!autofilter']={ref:'A1:'+String.fromCharCode(64+data[0].length)+data.length};return ws;};
-async function analyze({buffer,catalog,date}){
+async function analyze({buffer,catalog,date,company={}}){
  const {prepareProducts,evaluateProduct,createNcmIndex}=await import('./ncm-planilha.mjs');
  const x=self.XLSX;
  if(!x)throw Error('Biblioteca Excel indisponível no worker');
@@ -25,7 +25,7 @@ async function analyze({buffer,catalog,date}){
   const products=prepareProducts(raw,start+2);
   const batch=[];
   for(const p of products){
-   const r=evaluateProduct(p,index,date);
+   const r=evaluateProduct(p,index,date,company);
    if(r.autoSuggestion)suggested++;
    if(!r.correct)without++;else filled++;
    if(r.currentExists)validOriginal++;
@@ -40,7 +40,7 @@ async function analyze({buffer,catalog,date}){
     officialContext:r.officialContext,originalDescription:r.originalDescription,
     originalContext:r.originalContext,match:r.match,
     priority:r.priority,sourceType:r.sourceType,
-    technicalStatus:r.technicalStatus,technicalProblem:r.technicalProblem,
+    obs:r.obs,currentExists:r.currentExists,technicalStatus:r.technicalStatus,technicalProblem:r.technicalProblem,
     technicalEvidence:r.technicalEvidence,missingAttributes:r.missingAttributes,
     alternatives:r.alternatives,row:r.row
    });
@@ -51,15 +51,15 @@ async function analyze({buffer,catalog,date}){
  }
  send('done',{processed:count,total:limit,accepted,suggested,without,filled,validOriginal,divergent,insufficient,date});
 }
-async function exportXlsx({rows,date,source}){
+async function exportXlsx({rows,date,source,company={}}){
  const x=self.XLSX;
  if(!x)throw Error('Biblioteca Excel indisponível no worker.');
  if(!Array.isArray(rows)||rows.length>100000)throw Error('Máximo de 100.000 produtos por exportação.');
- send('phase',{label:'Preparando quatro colunas e auditoria fiscal...',percent:12});
+ send('phase',{label:'Preparando cinco colunas e auditoria fiscal...',percent:12});
  await new Promise(resolve=>setTimeout(resolve,0));
  const wb=x.utils.book_new();
- const main=[fields,...rows.map(r=>[String(r.productCode??''),String(r.description??''),String(r.suppliedNcm??''),String(r.correct??'')])];
- x.utils.book_append_sheet(wb,sheet(main,[21,54,18,19]),'Classificação NCM');
+ const main=[[...fields,'OBS'],...rows.map(r=>[String(r.productCode??''),String(r.description??''),String(r.suppliedNcm??''),String(r.correct??''),String(r.obs??'CONFERIR — proposta não confirmada')])];
+ x.utils.book_append_sheet(wb,sheet(main,[21,54,18,19,90]),'Classificação NCM');
  send('phase',{label:'Preparando motivos e pendências para cada produto...',percent:31});
  await new Promise(resolve=>setTimeout(resolve,0));
  const detail=[
@@ -74,7 +74,7 @@ async function exportXlsx({rows,date,source}){
  ])
  ];
  x.utils.book_append_sheet(wb,sheet(detail,[21,18,36,19,57,74,26,36,86,36,24,32,33,80,76,82]),'Auditoria NCM');
- const originals=rows.filter(r=>String(r.originalStatus??'').includes('vigente')).length;
+ const originals=rows.filter(r=>r.currentExists===true).length;
  const proposed=rows.filter(r=>r.autoSuggestion).length;
  const reviewed=rows.filter(r=>r.enteredCorrect).length;
  const unfilled=rows.filter(r=>!r.correct).length;
@@ -91,6 +91,8 @@ async function exportXlsx({rows,date,source}){
  ['Sem proposta por informação insuficiente',unfilled],
  ['NCMs com possível incompatibilidade técnica',divergent],
  ['Produtos sem detalhes para validação técnica',insufficient],
+ ['CNPJ (contexto informado)',company.cnpj||'Não informado'],
+ ['Ramo / CNAE (contexto, não comprovação)',company.activity||'Não informado'],
  ['Data da base de classificação',date||'Não informada'],
  ['Base NCM',source||'Tabela importada pelo Fiscora'],
  ['OBSERVAÇÃO','NCM correto é uma proposta e NÃO uma classificação validada. A auditoria avalia apenas informações presentes na descrição. Código existente não implica compatibilidade.'],
