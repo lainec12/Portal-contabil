@@ -1,6 +1,6 @@
 // Layout obrigatório para análise em lote: código do produto | descrição | NCM | NCM correto.
 // "NCM correto" é proposto para revisão, nunca confirmado automaticamente.
-import {norm,digits,suggest} from './ncm-classificador.mjs';
+import {norm,digits,suggest,isValidOn} from './ncm-classificador.mjs';
 const cleanHeader = value => norm(value).replace(/\s/g,'');
 const get = (row,keys) => {
  const m=new Map(Object.entries(row).map(([key,value])=>[cleanHeader(key),value]));
@@ -17,15 +17,15 @@ export function prepareProducts(rows){
    return {row:i+2,productCode,description,suppliedNcm,enteredCorrect};
  }).filter(Boolean);
 }
-export function evaluateProduct(p,catalog){
- const existing=catalog.find(x=>x.code===p.suppliedNcm);
- const candidate=p.description?suggest(p.description,catalog,2):[];
+export function evaluateProduct(p,catalog,date='2026-11-24'){
+ const existing=catalog.find(x=>x.code===p.suppliedNcm);\n const currentExists=!!existing && isValidOn(existing,date);
+ const active=catalog.filter(x=>isValidOn(x,date));\n const candidate=p.description?suggest(p.description,active,2):[];
  const first=candidate[0]||null,second=candidate[1]||null;
  const ambiguous=!first || first.match<60 || (second && first.match-second.match<15);
  const suggested=ambiguous?'':first.code;
  const correct=p.enteredCorrect||suggested;
  const status=p.enteredCorrect?'Informado na planilha; conferir':!suggested?'Sem correspondência suficiente; revisar':'Sugestão textual; revisar';
- return {...p,correct,autoSuggestion:suggested,match:first?.match??null,officialDescription:first?.description||'',currentExists:!!existing,status,alternatives:candidate.map(x=>x.code)};
+ return {...p,correct,autoSuggestion:suggested,match:first?.match??null,officialDescription:first?.description||'',currentExists,originalStatus:!p.suppliedNcm?'NCM original não informado':!existing?'NCM original não encontrado na base':currentExists?'NCM original vigente na data consultada':'NCM original fora da vigência na data consultada',status,alternatives:candidate.map(x=>x.code)};
 }
 export function outputRows(items){return items.map(x=>({
  'Cód. do prod':x.productCode,
