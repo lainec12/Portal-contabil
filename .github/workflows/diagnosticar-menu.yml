@@ -1,22 +1,41 @@
-name: Diagnosticar menu do portal
+name: Integrar relatório no menu Notas XML
 on:
   push:
     paths: ['.github/workflows/diagnosticar-menu.yml']
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
-  diagnostico:
+  integrar:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Examinar pontos de integração
+      - name: Integrar link na navegação e na seção
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
-          s=Path('index.html').read_text(encoding='utf-8')
-          print('TAMANHO',len(s))
-          for term in ('assistente-operacoes-fiscais.html','Ferramentas','ferramentas','relatorio-xml-creditos.html'):
-              ms=list(re.finditer(re.escape(term),s,re.I))
-              print('TERMO',term,'TOTAL',len(ms))
-              for m in ms[:5]:print('TRECHO',repr(s[max(0,m.start()-350):m.end()+350]))
+          p=Path('index.html')
+          h=p.read_text(encoding='utf-8')
+          h,n=re.subn(r'<div id="atalho-relatorio-xml".*?</div>\\n?', '',h,count=1,flags=re.S)
+          print('Atalho flutuante removido',n)
+          link='<a href="./relatorio-xml-creditos.html">Relatório XML e Créditos</a>'
+          nav='<a href="#conferencia-notas">Notas/XML</a>'
+          if link not in h:
+              if nav not in h:raise SystemExit('Navegação Notas/XML não localizada')
+              h=h.replace(nav,nav+link,1)
+          sect=re.search(r'<section\\b[^>]*id=["\\\']conferencia-notas["\\\'][^>]*>',h,re.I)
+          if not sect:raise SystemExit('Seção Notas/XML não localizada')
+          card='<div class="card" id="card-relatorio-xml" style="margin:16px 0;padding:18px;border:2px solid #8760bb;border-radius:14px;background:#f8f3ff"><h3>Relatório de XMLs e Créditos Fiscais</h3><p>Importe ZIPs ou XMLs, confira entradas e saídas, cancelamentos, CFOPs e valores tributários. Gere relatórios em PDF para o cliente e para o escritório.</p><a class="primary" style="display:inline-block;background:#673ab7;color:white;padding:12px 18px;border-radius:9px;text-decoration:none" href="./relatorio-xml-creditos.html">Abrir Relatório de XMLs e Créditos</a></div>'
+          if 'id="card-relatorio-xml"' not in h:
+              pos=sect.end()
+              h=h[:pos]+card+h[pos:]
+          p.write_text(h,encoding='utf-8')
+          print('Link integrado no menu Notas/XML e card na seção')
           PY
+      - name: Salvar
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          if ! git diff --cached --quiet; then git commit -m "Exibe Relatório de XML e Créditos no menu Notas/XML"; git push; fi
