@@ -114,3 +114,19 @@ test('OBS exige revisão para proposta de código original inexistente',()=>{
  assert.equal(result.correct,'85114000');
  assert.match(result.obs,/ATENÇÃO.*original inválido/i);
 });
+
+test('exportação exibe a descrição oficial ao lado de cada NCM e OBS',async()=>{
+ const {classificationHeaders,classificationExportRow}=await import('../ncm-planilha.mjs');
+ const row=classificationExportRow({productCode:'01',description:'Motor partida',suppliedNcm:'84820000',correct:'85114000',officialDescription:'Motores de arranque',officialContext:'Aparelhos elétricos de ignição ou arranque',obs:'ATENÇÃO — conferir'});
+ assert.equal(classificationHeaders.length,7);
+ assert.equal(row[2],'84820000');
+ assert.equal(row[3],'NCM não encontrado na base');
+ assert.equal(row[4],'85114000');
+ assert.match(row[5],/Motores de arranque/);
+ assert.match(row[6],/ATENÇÃO/);
+});
+test('descrição oficial genérica recebe contexto e ausência não inventa texto',async()=>{
+ const {formatOfficialNcm}=await import('../ncm-planilha.mjs');
+ assert.equal(formatOfficialNcm({description:'Outros',context:'Partes de freios'},'87083090'),'Outros — Partes de freios');
+ assert.equal(formatOfficialNcm(null,''),'');
+});
