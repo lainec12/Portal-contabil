@@ -3,7 +3,7 @@ on:
   push:
     paths:
       - 'fiscal-analysis.mjs'
-      - 'tests/fiscal-analysis.test.mjs'
+      - 'tests/**'
       - '.github/workflows/auditoria-fiscal.yml'
   workflow_dispatch:
 permissions:
