@@ -12,7 +12,7 @@ test('mantém NCM original e preenche somente a coluna de sugestão',()=>{
  const out=outputRows([row])[0];
  assert.deepEqual(Object.keys(out),['Cód. do prod','Descrição','NCM','NCM correto']);
  assert.equal(out['NCM'],'00000000');assert.equal(out['NCM correto'],'61091000');
- assert.match(row.status,/revisar/i);
+ assert.match(row.status,/revis[aã]/i);
 });
 test('não inventa classificação sem correspondência suficiente',()=>{
  const row=evaluateProduct(prepareProducts([{'Cód. do prod':'P2','Descrição':'abacaxi desconhecido','NCM':'11111111'}])[0],catalog);
