@@ -9,7 +9,7 @@ const get = (row,keys) => {
 };
 export function prepareProducts(rows){
  return rows.map((r,i)=>{
-   const productCode=get(r,['codprod','codigoproduto','codigodoproduto','codproduto','coditem','codigo','sku']);
+   const productCode=get(r,['coddoprod','codprod','codigoproduto','codigodoproduto','codproduto','coditem','codigo','sku']);
    const description=get(r,['descricao','descricaodoproduto','descritem','descrcompl','produto','xprod']);
    const suppliedNcm=digits(get(r,['ncm','ncminformado','codncm']));
    const enteredCorrect=digits(get(r,['ncmcorreto']));
