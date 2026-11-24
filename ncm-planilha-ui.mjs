@@ -1,3 +1,4 @@
+import {formatOfficialNcm} from './ncm-planilha.mjs';
 // Até 100.000 produtos: análise e exportação em Worker, sem bloquear a interface.
 const $=id=>document.getElementById(id),fmt=n=>Number(n||0).toLocaleString('pt-BR');
 const fields=['Cód. do prod','Descrição','NCM','NCM correto'];
@@ -33,11 +34,23 @@ function render(){
   const tr=document.createElement('tr');
   const add=v=>{const td=document.createElement('td');td.textContent=v||'';tr.append(td)};
   add(item.productCode);add(item.description);add(item.suppliedNcm);
+  add(formatOfficialNcm(item.originalDescription?{description:item.originalDescription,context:item.originalContext}:null,item.suppliedNcm));
   const td=document.createElement('td'),input=document.createElement('input');
   input.value=item.correct||'';input.maxLength=8;input.inputMode='numeric';input.style.width='115px';
   input.placeholder='Conferir NCM';input.setAttribute('aria-label','NCM correto '+item.productCode);
-  input.oninput=()=>{item.correct=input.value.replace(/\D/g,'').slice(0,8);input.value=item.correct;item.obs='ATENÇÃO — alterado manualmente; conferir existência e adequação fiscal.';strong.textContent=item.obs;note.classList.add('ncm-attention')};
-  td.append(input);tr.append(td);
+  const proposedDesc=document.createElement('td');
+  proposedDesc.textContent=formatOfficialNcm(item.officialDescription?{description:item.officialDescription,context:item.officialContext}:null,item.correct);
+  input.oninput=()=>{
+   item.correct=input.value.replace(/\D/g,'').slice(0,8);input.value=item.correct;
+   const entry=item.correct.length===8?(globalThis.fiscoraNcmCatalog||[]).find(x=>x.code===item.correct):null;
+   item.candidateCode=item.correct;item.officialDescription=entry?.description||'';item.officialContext=entry?.context||'';
+   item.match=null;item.autoSuggestion='';item.sourceType='alterado manualmente';item.status='Proposta alterada manualmente — conferir';
+   item.obs=entry?'ATENÇÃO — alterado manualmente; conferir adequação fiscal.':'ATENÇÃO — código alterado não localizado na base; revisar.';
+   item.reason='Proposta editada manualmente; auditoria técnica anterior se refere ao NCM original.';
+   proposedDesc.textContent=formatOfficialNcm(entry,item.correct);
+   strong.textContent=item.obs;note.classList.add('ncm-attention');
+  };
+  td.append(input);tr.append(td);tr.append(proposedDesc);
   const note=document.createElement('td'),strong=document.createElement('strong'),small=document.createElement('p');
   strong.textContent=item.obs||'CONFERIR — proposta não confirmada';if(/ATENÇÃO|REVISÃO OBRIGATÓRIA/.test(strong.textContent))note.classList.add('ncm-attention');
   small.textContent=(item.technicalProblem||'')+' · '+(item.missingAttributes?'Confirmar: '+item.missingAttributes+' · ':'')+(item.originalStatus||'');small.className='muted';
