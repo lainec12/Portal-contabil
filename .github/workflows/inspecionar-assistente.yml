@@ -1,4 +1,4 @@
-name: Inspecionar atalho Assistente Fiscal
+name: Diagnosticar tema do Fiscora
 on:
   push:
     paths: ['.github/workflows/inspecionar-assistente.yml']
@@ -8,15 +8,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Localizar atalhos
-        run: |
+      - run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
-          for name in ('index.html','portal.js'):
-            t=Path(name).read_text(encoding='utf-8')
-            for expr in ('Assistente de Operações Fiscais','assistente-operacoes-fiscais.html','Serviços Prestados · PDF'):
-              z=list(re.finditer(re.escape(expr),t,re.I))
-              print('MATCH',name,expr,len(z))
-              for m in z[:5]:print('CONTEXT',repr(t[max(0,m.start()-300):m.end()+200]))
+          for f in ('index.html','portal.js'):
+            s=Path(f).read_text(encoding='utf-8')
+            for term in ('contaclara_theme','data-theme','ferramentas-light-style','--surface','themeToggle'):
+              matches=list(re.finditer(re.escape(term),s,re.I))
+              print('TERM',f,term,len(matches))
+              for m in matches[:3]:print('SNIP',repr(s[max(0,m.start()-180):m.start()+350]))
           PY
