@@ -6,6 +6,7 @@ on:
       - 'pis-cofins*.mjs'
       - 'pis-cofins.html'
       - 'ncm-*.mjs'
+      - 'ncm-batch-worker.js'
       - 'classificacao-ncm.html'
       - 'data/ncm-*.json'
       - 'tests/**'
@@ -31,6 +32,7 @@ jobs:
           node --check ncm-classificador.mjs
           node --check ncm-planilha.mjs
           node --check ncm-planilha-ui.mjs
+          node --check ncm-batch-worker.js
           node --test tests/ncm-classificador.test.mjs tests/ncm-planilha.test.mjs
       - name: Validar base NCM salva
         run: |
