@@ -1,10 +1,11 @@
+import {sendPacket,contributionRows} from './fluxo-bridge.mjs';
 import {parseBook,compareContribution,parseEfd} from './contrib-livro.mjs?v=20261127-validado';
 import * as pdfjs from './vendor/pdf.min.mjs';
 pdfjs.GlobalWorkerOptions.workerSrc=new URL('./vendor/pdf.worker.min.mjs',import.meta.url).href;
 const $=id=>document.getElementById(id),e=(tag,text)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;return n};
 const money=v=>v==null?'Não disponível':(v/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const names={summary:'Resumo da apuração',credit:'Créditos por tipo',nature:'Bases por natureza do crédito',debit:'Débitos por código'};
-let data=null;
+let data=null,flowRows=[];
 async function pdf(file){
  const doc=await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer()),isEvalSupported:false}).promise,pages=[];
  try{for(let i=1;i<=doc.numPages;i++){
@@ -23,12 +24,14 @@ function draw(){const root=$('contribBookResults');root.replaceChildren();if(!da
  const rows=data.rows.filter(r=>(!$('contribMonth').value||r.period===$('contribMonth').value)&&(!$('contribDiff').checked||r.status==='DIVERGENTE'));
  for(const p of [...new Set(rows.map(r=>r.period))].sort()){const det=e('details');det.append(e('summary',p+' · '+rows.filter(r=>r.period===p&&r.status==='DIVERGENTE').length+' divergências'));for(const scope of Object.keys(names)){const rr=rows.filter(r=>r.period===p&&r.scope===scope);if(!rr.length)continue;const sub=e('details');sub.append(e('summary',names[scope]+' · '+rr.length+' campos'));const wrap=e('div');wrap.className='scroll';wrap.append(table(document,rr));sub.append(wrap);det.append(sub)}root.append(det)}
 }
-$('contribBookRun').onclick=async()=>{const status=$('contribBookStatus');$('contribBookRun').disabled=true;data=null;$('contribBookResults').replaceChildren();try{
+$('contribBookRun').onclick=async()=>{const status=$('contribBookStatus');$('contribBookRun').disabled=true;data=null;flowRows=[];$('contribBookResults').replaceChildren();try{
  const bs=[...$('contribBook').files],fs=[...$('contribBookSped').files];if(!bs.length||!fs.length)throw Error('Envie Livro PDF e EFD-Contribuições TXT.');
  status.textContent='Lendo PDF e EFD…';const books=[],files=[];for(const f of bs)books.push(await pdf(f));for(const f of fs)files.push(parseEfd(await txt(f),'contrib'));
- data=compareContribution(books,files);$('contribMonth').replaceChildren(new Option('Todas',''),...[...new Set(data.rows.map(r=>r.period))].sort().map(p=>new Option(p,p)));$('contribDiff').checked=false;draw();
+ data=compareContribution(books,files);flowRows=contributionRows(files).map(r=>({...r,div:data.rows.filter(x=>x.period===r.period&&x.tax===r.tax&&x.status==='DIVERGENTE').length,monthly:data.rows.filter(x=>x.period===r.period&&x.tax===r.tax&&(!x.unit||x.unit==='money')).map(x=>({label:x.label,status:x.status,sped:x.sped,book:x.book})),missingBook:data.missingBook.includes(r.period)}));$('contribMonth').replaceChildren(new Option('Todas',''),...[...new Set(data.rows.map(r=>r.period))].sort().map(p=>new Option(p,p)));$('contribDiff').checked=false;draw();
  status.textContent=data.rows.length+' campos · '+data.rows.filter(r=>r.status==='DIVERGENTE').length+' divergências · '+data.rows.filter(r=>r.status!=='CONFERE'&&r.status!=='DIVERGENTE').length+' campos sem comparação integral.'+(data.missingBook.length?' Sem Livro: '+data.missingBook.join(', '):'')+(data.missingSped.length?' Sem EFD: '+data.missingSped.join(', '):'');
  }catch(err){status.textContent=err.message}finally{$('contribBookRun').disabled=false}};
 $('contribMonth').onchange=$('contribDiff').onchange=draw;
 $('contribBookPdf').onclick=()=>{if(!data)return;const w=window.open('','_blank');if(!w)return;const d=w.document;d.title='Fiscora — Livro de Contribuições';const s=d.createElement('style');s.textContent='@page{size:A4 landscape;margin:10mm}body{font:11px Arial;color:#302340}table{border-collapse:collapse;width:100%;font-size:9px}td,th{border:1px solid #ddd;padding:5px}th{background:#eee4f5}thead{display:table-header-group}tr{break-inside:avoid}.bad{background:#fff0ef;color:#9c2525}h2,h3{break-after:avoid}';d.head.append(s);const add=(tag,v)=>{const n=d.createElement(tag);n.textContent=v;d.body.append(n)};add('h1','Fiscora — Livro × EFD-Contribuições');add('p','CNPJ: '+data.cnpj+' · '+$('contribBookStatus').textContent);add('p','Comparação dos valores declarados; campos ausentes não equivalem a zero. Não comprova direito ao crédito.');for(const p of [...new Set(data.rows.map(r=>r.period))].sort()){add('h2',p);for(const scope of Object.keys(names)){const rows=data.rows.filter(r=>r.period===p&&r.scope===scope);if(rows.length){add('h3',names[scope]);d.body.append(table(d,rows))}}}w.focus();w.print()};
 $('contribBookExcel').onclick=()=>{if(!data)return;const wb=XLSX.utils.book_new(),ws=XLSX.utils.aoa_to_sheet([headers,...data.rows.map(r=>[r.period,r.tax,r.code,r.label,r.record,...[r.sped,r.book,r.delta].map(v=>v==null?'':v/(r.unit&&r.unit!=='money'?10000:100)),r.status])]);ws['!cols']=[{wch:13},{wch:12},{wch:10},{wch:75},{wch:14},{wch:18},{wch:18},{wch:18},{wch:20}];XLSX.utils.book_append_sheet(wb,ws,'Contribuições');XLSX.writeFile(wb,'fiscora-livro-contribuicoes.xlsx')};
+
+$('contrib-flow').onclick=()=>{try{if(!data)throw Error('Faça a conferência primeiro.');sendPacket({kind:'contrib-book',cnpj:data.cnpj,rows:flowRows,description:'Livro × EFD-Contribuições'})}catch(e){$('contribBookStatus').textContent=e.message}};

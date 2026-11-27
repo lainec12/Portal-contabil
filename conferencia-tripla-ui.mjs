@@ -1,3 +1,4 @@
+import {sendPacket,monthlyRows as transferRows} from './fluxo-bridge.mjs';
 import {parseSped,parseXml,parseBookRows,reconcileThree,taxFields,labels} from './conferencia-tripla.mjs?v=20261127-mensal';
 import {cents,parseDelimited} from './sheet-compare.mjs';
 const $=id=>document.getElementById(id),fmt=n=>Number(n).toLocaleString('pt-BR'),money=n=>n==null?'Não disponível':(n/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
@@ -286,3 +287,5 @@ $('pdf-notes').onclick=()=>{
  for(const g of groups){d.body.append(element(d,'h2',g.period+' · '+movementName(g.direction)+' · '+fmt(g.notes.length)+' notas'));for(const n of g.notes){d.body.append(element(d,'h3','NF '+(n.num||'—')),noteDetail(d,n,true))}}
  finishReport(win,d);
 };
+
+$('flow-send').onclick=()=>{if(!result)return;try{sendPacket({kind:'trip',cnpj:meta.cnpj,rows:transferRows(result.monthlyRows),description:'Conferência '+result.sources.join(' × ')})}catch(e){$('status').textContent=e.message}};
