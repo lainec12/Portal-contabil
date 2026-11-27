@@ -138,7 +138,9 @@ function comparePair(a,b,an,bn,issues,tolerance){
   for(const j of b.items)if(!am.has(j.num))addIssue(issues,source,'Item sem par',a,'Item '+j.num,null,j.description||j.code,'Conferir correspondência da numeração de itens.');
  }
 }
-export function reconcileThree({xml,sped,book,period,tolerance=1}){
+export function reconcileThree({xml,sped,book,period,periodEnd=period,tolerance=1}){
+ const inPeriod=m=>m>=period&&m<=periodEnd;
+ const periodLabel=period===periodEnd?period:period+' a '+periodEnd;
  const issues=[...(xml.issues||[]),...(sped.issues||[]),...(book.issues||[])];
  const events=new Set(xml.events||[]);
  const xm=indexDocs('XML',xml.docs.map(d=>events.has(d.key)?{...d,status:'cancelada'}:d),issues),sm=indexDocs('SPED',sped.docs,issues),bm=book.docs?indexDocs('Livro',book.docs,issues):null;
@@ -147,7 +149,7 @@ export function reconcileThree({xml,sped,book,period,tolerance=1}){
  const notes=[];
  for(const key of keys){
   const x=xm.get(key),s=sm.get(key),b=bm?.get(key),d=s||b||x;
-  if(x&&!s&&!b&&period&&x.date.slice(0,7)!==period){addIssue(issues,'XML','Fora da competência de emissão',x,'Data',x.date,period,'Sem correspondência no período. Conferir data de entrada. Não incluído no total XML do mês.');continue}
+  if(x&&!s&&!b&&period&&!inPeriod(x.date.slice(0,7))){addIssue(issues,'XML','Fora da competência de emissão',x,'Data',x.date,periodLabel,'Sem correspondência no período. Conferir data de entrada. Não incluído no total XML do período.');continue}
   for(const [name,m] of maps)if(!m.has(key))addIssue(issues,name,'Documento ausente',d,'',null,null,'Não localizado no arquivo enviado; verificar escopo e obrigação de escrituração.');
   if(x&&s)comparePair(x,s,'XML','SPED',issues,tolerance);
   if(x&&b)comparePair(x,b,'XML','Livro',issues,tolerance);
@@ -161,8 +163,11 @@ export function reconcileThree({xml,sped,book,period,tolerance=1}){
  for(const key of events)if(!xm.has(key))addIssue(issues,'XML','Evento sem documento XML',{key},'Situação','cancelamento confirmado',null,'Importar o XML original para conferir.');
  const totals=['entrada','saida'].map(direction=>{
   const sum=name=>{const a=notes.map(n=>n[name]).filter(d=>d&&d.direction===direction&&!excluded(d));return a.some(d=>d.values.valor==null)?null:a.reduce((acc,d)=>acc+d.values.valor,0)};
-  const x=sum('xml'),s=sum('sped'),bt=bm?sum('book'):book.totals?.find(t=>t.period===period&&t.direction===direction)?.amount??null;
+  const x=sum('xml'),s=sum('sped');
+  const monthly=book.totals?.filter(t=>inPeriod(t.period)&&t.direction===direction)||[];
+  const span=(Number(periodEnd?.slice(0,4))-Number(period?.slice(0,4)))*12+Number(periodEnd?.slice(5,7))-Number(period?.slice(5,7))+1;
+  const bt=bm?sum('book'):monthly.length===span&&new Set(monthly.map(t=>t.period)).size===span?monthly.reduce((a,t)=>a+t.amount,0):null;
   return {direction,xml:x,sped:s,book:bt,xmlSped:x!=null&&s!=null?s-x:null,spedBook:s!=null&&bt!=null?bt-s:null};
  });
- return {notes,issues,totals,bookMode:bm?'documentos':'totais P9',period};
+ return {notes,issues,totals,bookMode:bm?'documentos':'totais P9',period:periodLabel};
 }

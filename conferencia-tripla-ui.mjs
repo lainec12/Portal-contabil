@@ -7,7 +7,7 @@ const safeText=async f=>{const b=await f.arrayBuffer();try{return new TextDecode
 function state(on){busy=on;$('run').disabled=on;$('cancel').hidden=!on;$('progress').hidden=!on;}
 function progress(n,msg){$('progress').value=n;$('status').textContent=n+'% — '+msg;}
 const check=id=>{if(id!==runId)throw Error('Conferência cancelada.');};
-function readP9(file,company,period){
+function readP9(file,company,period,periodEnd=period){
  return new Promise((resolve,reject)=>{
   const frame=document.createElement('iframe');frame.hidden=true;frame.src='./index.html#conferencia-notas';
   let interval,timeout,ended=false,reading=false;
@@ -24,7 +24,7 @@ function readP9(file,company,period){
     if(!book.ownCnpj||String(book.ownCnpj).replace(/\D/g,'')!==company)throw Error('CNPJ do Livro P9 ausente ou divergente.');
     const totals=new Map();
     for(const t of book.totals){
-     if(t.competencia!==period)continue;
+     if(t.competencia<period||t.competencia>periodEnd)continue;
      const k=t.competencia+'|'+t.direction;
      if(!Number.isFinite(Number(t.valorContabil)))throw Error('Valor contábil do P9 inválido.');
      const old=totals.get(k)||{period:t.competencia,direction:t.direction,amount:0};
@@ -37,8 +37,8 @@ function readP9(file,company,period){
   document.body.append(frame);
  });
 }
-async function readBook(file,company,period){
- if(/\.pdf$/i.test(file.name))return readP9(file,company,period);
+async function readBook(file,company,period,periodEnd=period){
+ if(/\.pdf$/i.test(file.name))return readP9(file,company,period,periodEnd);
  if(/\.csv$/i.test(file.name))return parseBookRows(parseDelimited(await safeText(file)));
  if(!/\.xlsx?$/i.test(file.name))throw Error('Formato de Livro não aceito.');
  if(!globalThis.XLSX)throw Error('Biblioteca Excel indisponível.');
@@ -46,6 +46,37 @@ async function readBook(file,company,period){
  const matches=wb.SheetNames.map(name=>XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,raw:false,defval:''})).filter(rows=>rows.some(r=>r.map(x=>String(x).trim().toLowerCase()).includes('chv_nfe')));
  if(matches.length!==1)throw Error('O Livro precisa ter uma aba por documento com chv_nfe. Baixe o modelo.');
  return parseBookRows(matches[0]);
+}
+function monthsBetween(start,end){
+ const valid=m=>/^\d{4}-(0[1-9]|1[0-2])$/.test(m);
+ if(!valid(start)||!valid(end)||start>end)throw Error('Informe competência inicial e final válidas, em ordem.');
+ let y=Number(start.slice(0,4)),m=Number(start.slice(5,7));const months=[];
+ while(true){const p=String(y).padStart(4,'0')+'-'+String(m).padStart(2,'0');months.push(p);if(p===end)break;if(++m===13){m=1;y++}}
+ return months;
+}
+async function readSpeds(files,company,months,id){
+ const out={docs:[],issues:[],header:{version:''},c170:0,c190:0},seen=new Set(),versions=new Set();
+ for(const file of files){
+  check(id);const p=parseSped(await safeText(file),{cnpj:company});const month=p.header.start.slice(0,7);
+  if(!months.includes(month)||p.header.end.slice(0,7)!==month)throw Error('SPED '+file.name+': competência fora do período ou arquivo não mensal.');
+  if(seen.has(month))throw Error('Mais de um SPED para '+month+'. Envie somente o arquivo vigente de cada mês.');
+  seen.add(month);versions.add(p.header.version);out.docs.push(...p.docs);out.issues.push(...p.issues);out.c170+=p.c170;out.c190+=p.c190;
+ }
+ const missing=months.filter(m=>!seen.has(m));if(missing.length)throw Error('Faltam arquivos SPED das competências: '+missing.join(', '));
+ out.header.version=[...versions].join(', ');return out;
+}
+async function readBooks(files,company,months,id){
+ const pdf=files.every(f=>/\.pdf$/i.test(f.name));
+ if(!pdf&&files.some(f=>/\.pdf$/i.test(f.name)))throw Error('Não misture livros P9 em PDF com livros por documento em planilha/CSV.');
+ const out=pdf?{totals:[],issues:[]}:{docs:[],issues:[]},seen=new Set();
+ for(const file of files){
+  check(id);const b=await readBook(file,company,months[0],months[months.length-1]);check(id);
+  if(pdf){for(const t of b.totals){const key=t.period+'|'+t.direction;if(seen.has(key))throw Error('P9 repetido para '+key+'. Confira os arquivos.');seen.add(key);out.totals.push(t)}}
+  else out.docs.push(...b.docs);
+  out.issues.push(...(b.issues||[]));
+ }
+ if(pdf){const missing=months.filter(m=>!out.totals.some(t=>t.period===m));if(missing.length)throw Error('Faltam totais P9 das competências: '+missing.join(', '))}
+ return out;
 }
 async function readXml(files,company,id){
  const xml={docs:[],events:[],issues:[]};let processed=0,bytes=0;
@@ -87,7 +118,7 @@ function render(){
  $('meta').textContent='CNPJ '+meta.cnpj+' · Competência '+result.period+' · Livro: '+result.bookMode+' · SPED '+meta.version+' · Tolerância por campo '+money(meta.tolerance);
  const counts=[['Notas cruzadas / localizadas',result.notes.length],['Ocorrências de conferência',result.issues.length],['Ausências identificadas',result.issues.filter(i=>i.type==='Documento ausente').length],['Duplicidades',result.issues.filter(i=>i.type==='Duplicidade').length],['Ocorrências de cancelamento',result.issues.filter(i=>i.type==='Cancelada').length],['Divergências de valores e classificação',result.issues.filter(i=>/divergente/.test(i.type)).length]];
  $('metrics').replaceChildren(...counts.map(([name,n])=>{const d=document.createElement('div'),b=document.createElement('b');d.className='metric';d.textContent=name;b.textContent=fmt(n);d.append(b);return d}));
- $('coverage').textContent=(result.bookMode==='totais P9'?'P9 comparado somente por totais de movimento; não há confronto individual de notas com o Livro. ':'Livro por documento: campos ausentes não comparados. ')+
+ $('coverage').textContent=(result.bookMode==='totais P9'?'P9 comparado somente por totais de movimento do período; se faltar total de algum mês para um movimento, o total correspondente fica indisponível. Não há confronto individual de notas com o Livro. ':'Livro por documento: campos ausentes não comparados; competência das planilhas depende do escopo confirmado. ')+
  'SPED: '+fmt(meta.c170)+' C170 e '+fmt(meta.c190)+' C190 lidos. A ausência de registros ou documentos não comprova erro fiscal. Totais são preliminares, por chave válida, sem duplicar documentos; cancelados/excluídos não somados. Não há consulta SEFAZ. Diferenças de competência e de escrituração exigem revisão.';
  $('totals').replaceChildren();
  for(const t of result.totals)rowInto($('totals'),[t.direction,...['xml','sped','book','xmlSped','spedBook'].map(k=>money(t[k]))]);
@@ -95,15 +126,16 @@ function render(){
 }
 $('run').onclick=async()=>{
  if(busy)return;
- const cnpj=$('cnpj').value.replace(/\D/g,''),period=$('period').value,tolerance=cents($('tolerance').value),files=[...$('xml').files],spedFile=$('sped').files[0],bookFile=$('book').files[0];
- if(!/^\d{14}$/.test(cnpj)||!period||tolerance==null||tolerance<0||!files.length||!spedFile||!bookFile||!$('confirm').checked){$('status').textContent='Informe CNPJ, competência, tolerância válida, os três arquivos e confirme o escopo.';return}
+ const cnpj=$('cnpj').value.replace(/\D/g,''),period=$('period').value,periodEnd=$('periodEnd')?.value||period,tolerance=cents($('tolerance').value),files=[...$('xml').files],spedFiles=[...$('sped').files],bookFiles=[...$('book').files];
+ if(!/^\d{14}$/.test(cnpj)||!period||tolerance==null||tolerance<0||!files.length||!spedFiles.length||!bookFiles.length||!$('confirm').checked){$('status').textContent='Informe CNPJ, período de competências, tolerância válida, arquivos das três fontes e confirme o escopo.';return}
  const id=++runId;state(true);$('report').hidden=true;result=null;
  try{
-  progress(5,'Lendo SPED Fiscal...');await delay();const sped=parseSped(await safeText(spedFile),{cnpj,period});check(id);
+  const months=monthsBetween(period,periodEnd);
+  progress(5,'Lendo SPED Fiscal...');await delay();const sped=await readSpeds(spedFiles,cnpj,months,id);check(id);
   progress(18,'Lendo XMLs e eventos...');await delay();const xml=await readXml(files,cnpj,id);check(id);
-  progress(65,'Lendo Livro Fiscal...');await delay();const book=await readBook(bookFile,cnpj,period);check(id);
+  progress(65,'Lendo Livro Fiscal...');await delay();const book=await readBooks(bookFiles,cnpj,months,id);check(id);
   progress(83,'Cruzando chaves e comparando campos...');await delay();
-  result=reconcileThree({xml,sped,book,period,tolerance});
+  result=reconcileThree({xml,sped,book,period,periodEnd,tolerance});
   meta={cnpj,version:sped.header.version,c170:sped.c170,c190:sped.c190,tolerance};
   progress(97,'Preparando relatório...');await delay();check(id);render();
   $('status').textContent='100% — Conferência concluída: '+fmt(result.notes.length)+' documentos; '+fmt(result.issues.length)+' ocorrências.';
@@ -114,7 +146,7 @@ $('cancel').onclick=()=>{runId++;state(false);$('status').textContent='Conferên
 for(const id of ['kind','source','search'])$(id).addEventListener(id==='search'?'input':'change',()=>{page=0;draw()});
 $('prev').onclick=()=>{if(page>0){page--;draw()}};$('next').onclick=()=>{if((page+1)*100<filter().length){page++;draw()}};
 function sheet(wb,name,rows,widths){const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=widths.map(wch=>({wch}));if(rows.length>1)ws['!autofilter']={ref:ws['!ref']};XLSX.utils.book_append_sheet(wb,ws,name)}
-$('model').onclick=()=>{try{const wb=XLSX.utils.book_new();sheet(wb,'Livro por documento',[bookHeaders],[48,14,10,14,14,18,16,16,18,18,18,18,18,18,18]);sheet(wb,'Instruções',[['Campo','Orientação'],['chv_nfe','Chave de 44 dígitos, como TEXTO. Uma linha por nota.'],['ind_oper','0 entrada; 1 saída'],['cod_sit','Situação SPED, se disponível'],['Valores','Valores de documento, não por item. Campo desconhecido em branco.'],['CFOP / CST','Separe códigos múltiplos com ponto e vírgula.'],['Escopo','Somente o estabelecimento e competência selecionados.']],[24,100]);XLSX.writeFile(wb,'modelo-livro-fiscal-conferencia.xlsx')}catch(e){$('status').textContent=e.message}};
+$('model').onclick=()=>{try{const wb=XLSX.utils.book_new();sheet(wb,'Livro por documento',[bookHeaders],[48,14,10,14,14,18,16,16,18,18,18,18,18,18,18]);sheet(wb,'Instruções',[['Campo','Orientação'],['chv_nfe','Chave de 44 dígitos, como TEXTO. Uma linha por nota.'],['ind_oper','0 entrada; 1 saída'],['cod_sit','Situação SPED, se disponível'],['Valores','Valores de documento, não por item. Campo desconhecido em branco.'],['CFOP / CST','Separe códigos múltiplos com ponto e vírgula.'],['Escopo','Somente o estabelecimento e as competências selecionadas.']],[24,100]);XLSX.writeFile(wb,'modelo-livro-fiscal-conferencia.xlsx')}catch(e){$('status').textContent=e.message}};
 $('excel').onclick=()=>{
  if(!result)return;
  try{
