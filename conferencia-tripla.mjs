@@ -39,7 +39,7 @@ export function parseSped(text,{cnpj='',period=''}={}){
  if(!header||!endings.has('9999'))throw Error('TXT incompleto ou não reconhecido como EFD ICMS/IPI (0000/9999).');
  if(cnpj&&header.cnpj!==cnpj)throw Error('CNPJ do SPED difere do estabelecimento informado.');
  if(period&&(header.start.slice(0,7)!==period||header.end.slice(0,7)!==period))throw Error('Competência do SPED diferente da selecionada.');
- for(const d of docs){if(!validKey(d.key))addIssue(issues,'SPED','Chave ausente/inválida',d,'',null,null,'Documento sem chave não é cruzado automaticamente.');}
+ for(const d of docs){d.period=header.start.slice(0,7);if(!validKey(d.key))addIssue(issues,'SPED','Chave ausente/inválida',d,'',null,null,'Documento sem chave não é cruzado automaticamente.');}
  return {docs,issues,header,c170,c190};
 }
 const children=n=>Array.from(n?.children||[]);
@@ -84,7 +84,7 @@ export function parseBookRows(rows){
   if(!row.some(v=>String(v??'').trim()))continue;
   const g=k=>row[h.indexOf(k)]??'',key=keyOf(g('chv_nfe')),op=String(g('ind_oper')).trim(),sit=String(g('cod_sit')).trim().padStart(2,'0');
   if(!['0','1'].includes(op))throw Error('Livro: ind_oper deve ser 0 ou 1.');
-  const doc={key,num:String(g('num_doc')),series:String(g('ser')),direction:op==='0'?'entrada':'saida',status:g('cod_sit')!==''?status(sit):'não informado',values:Object.fromEntries(Object.entries({valor:'vl_doc',bcICMS:'vl_bc_icms',icms:'vl_icms',bcST:'vl_bc_icms_st',st:'vl_icms_st',ipi:'vl_ipi',pis:'vl_pis',cofins:'vl_cofins'}).map(([k,v])=>[k,cents(g(v))])),items:[],analytic:[]};
+  const doc={key,period:String(g('competencia')).trim(),num:String(g('num_doc')),series:String(g('ser')),direction:op==='0'?'entrada':'saida',status:g('cod_sit')!==''?status(sit):'não informado',values:Object.fromEntries(Object.entries({valor:'vl_doc',bcICMS:'vl_bc_icms',icms:'vl_icms',bcST:'vl_bc_icms_st',st:'vl_icms_st',ipi:'vl_ipi',pis:'vl_pis',cofins:'vl_cofins'}).map(([k,v])=>[k,cents(g(v))])),items:[],analytic:[]};
   doc.cfops=unique(String(g('cfop')).split(/[,;/\s]+/));doc.csts=unique(String(g('cst_icms')).split(/[,;/\s]+/));
   if(!validKey(key))addIssue(issues,'Livro','Chave ausente/inválida',doc,'',null,null,'Não será cruzada por número isolado.');
   docs.push(doc);
@@ -158,8 +158,8 @@ export function reconcileThree({xml,sped,book,period,periodEnd=period,tolerance=
   if(s&&b)comparePair(s,b,'SPED','Livro',issues,tolerance);
   if(x?.status==='sem protocolo confirmado')addIssue(issues,'XML','Autorização não comprovada',x,'Situação',x.status,null,'Sem consulta SEFAZ; conferir protocolo.');
   for(const [name,n] of [['XML',x],['SPED',s],['Livro',b]])if(n?.status==='cancelada')addIssue(issues,name,'Cancelada',n,'Situação',n.status,null,'Excluída dos totais considerados.');
-  if(s&&!excluded(s)&&!s.analytic.length)addIssue(issues,'SPED','C190 não disponível',s,'',null,null,'Sem confronto analítico de CFOP/CST pelo C190.');
-  if(s&&!excluded(s)&&!s.items.length)addIssue(issues,'SPED','C170 não disponível',s,'',null,null,'Pode ser dispensado. Sem confronto de itens e bases de IPI/PIS/COFINS.');
+  if(s&&!excluded(s)&&maps.length>1&&!s.analytic.length)addIssue(issues,'SPED','C190 não disponível',s,'',null,null,'Sem confronto analítico de CFOP/CST pelo C190.');
+  if(s&&!excluded(s)&&maps.length>1&&!s.items.length)addIssue(issues,'SPED','C170 não disponível',s,'',null,null,'Pode ser dispensado. Sem confronto de itens e bases de IPI/PIS/COFINS.');
   notes.push({key,num:d.num,direction:d.direction,xml:x||null,sped:s||null,book:b||null});
  }
  for(const key of events)if(!xm.has(key))addIssue(issues,'XML','Evento sem documento XML',{key},'Situação','cancelamento confirmado',null,'Importar o XML original para conferir.');
@@ -171,5 +171,40 @@ export function reconcileThree({xml,sped,book,period,periodEnd=period,tolerance=
   const bt=bm?sum('book'):monthly.length===span&&new Set(monthly.map(t=>t.period)).size===span?monthly.reduce((a,t)=>a+t.amount,0):null;
   return {direction,xml:x,sped:s,book:bt,xmlSped:x!=null&&s!=null?s-x:null,spedBook:s!=null&&bt!=null?bt-s:null,xmlBook:x!=null&&bt!=null?bt-x:null};
  });
- return {notes,issues,totals,bookMode:!book?'não enviado':bm?'documentos':'totais P9',sources,period:periodLabel};
+ const months=[];
+ if(/^\d{4}-\d{2}$/.test(period||'')&&/^\d{4}-\d{2}$/.test(periodEnd||'')){
+  let y=Number(period.slice(0,4)),m=Number(period.slice(5,7));
+  for(let i=0;i<120000;i++){const p=String(y).padStart(4,'0')+'-'+String(m).padStart(2,'0');if(p>periodEnd)break;months.push(p);if(++m===13){m=1;y++}}
+ }
+ const fields=['valor','bcICMS','icms','bcST','st','ipi','pis','cofins'];
+ const monthlyRows=[],buckets=new Map(),unknownBook=new Set();
+ const bucket=(p,direction,source)=>{const key=p+'|'+direction+'|'+source;if(!buckets.has(key))buckets.set(key,[]);return buckets.get(key)};
+ for(const n of notes){
+  for(const source of sources){
+   const d=n[source];if(!d||excluded(d))continue;
+   let p=source==='sped'?(d.period||d.entryDate?.slice(0,7)||d.date?.slice(0,7)):source==='xml'?(n.sped?.period||n.book?.period||d.date?.slice(0,7)):(d.period|| (months.length===1?months[0]:''));
+   if(source==='book'&&!months.includes(p)){unknownBook.add(d.direction);continue}
+   if(months.includes(p))bucket(p,d.direction,source).push(d);
+  }
+ }
+ const p9ByMonth=new Map((book?.totals||[]).map(t=>[t.period+'|'+t.direction,t]));
+ const pairs=[['xml','sped','xmlSped'],['sped','book','spedBook'],['xml','book','xmlBook']].filter(([a,b])=>sources.includes(a)&&sources.includes(b));
+ const fieldLabel=(f,d)=>f==='icms'?(d==='entrada'?'ICMS de entradas (crédito escriturado)':'ICMS de saídas (débito escriturado)'):labels[f];
+ for(const p of months)for(const direction of ['entrada','saida'])for(const field of fields){
+  const row={period:p,direction,field,label:fieldLabel(field,direction)};
+  for(const source of sources){
+   if(source==='book'&&!bm){const t=p9ByMonth.get(p+'|'+direction);row[source]=field==='valor'?t?.amount??null:t?.values?.[field]??null;continue}
+   if(source==='book'&&unknownBook.has(direction)){row[source]=null;continue}
+   const ds=bucket(p,direction,source);
+   row[source]=ds.some(d=>d.values[field]==null||!Number.isFinite(d.values[field]))?null:ds.reduce((sum,d)=>sum+d.values[field],0);
+  }
+  // Display only fields actually available in at least one source.
+  if(!['valor','bcICMS','icms'].includes(field)&&!sources.some(k=>row[k]!=null&&row[k]!==0))continue;
+  let compared=0,divergent=false;
+  for(const [a,b,k] of pairs){row[k]=row[a]!=null&&row[b]!=null?row[b]-row[a]:null;if(row[k]==null)continue;compared++;if(Math.abs(row[k])>tolerance){divergent=true;
+   addIssue(issues,({xml:'XML',sped:'SPED',book:'Livro'})[a]+' × '+({xml:'XML',sped:'SPED',book:'Livro'})[b],'Total mensal divergente',{direction},p+' / '+row.label,row[a],row[b],'Diferença mensal de '+p+' ('+direction+'). Verificar abrangência, escrituração e valores das fontes.');
+  }}
+  row.status=divergent?'DIVERGENTE':compared===pairs.length?'CONFERE':compared?'PARCIAL':'NÃO COMPARÁVEL';monthlyRows.push(row);
+ }
+ return {notes,issues,totals,monthlyRows,bookMode:!book?'não enviado':bm?'documentos':'totais P9',sources,period:periodLabel};
 }
