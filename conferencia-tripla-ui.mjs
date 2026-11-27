@@ -135,6 +135,69 @@ function drawMonthly(){
  $('monthly-count').textContent=fmt(rows.length)+' linhas · '+fmt(rows.filter(r=>r.status==='DIVERGENTE').length)+' divergências.';
 }
 for(const id of ['month-filter','movement-filter','monthly-only'])$(id).addEventListener('change',()=>{if(result)drawMonthly()});
+
+const notePeriod=n=>n.sped?.period||n.book?.period||n.xml?.date?.slice(0,7)||n.sped?.entryDate?.slice(0,7)||n.sped?.date?.slice(0,7)||'Não informada';
+const movementName=d=>d==='entrada'?'Entradas':d==='saida'?'Saídas':'Não informado';
+const coverageIssue=i=>['C170 não disponível','C190 não disponível'].includes(i.type);
+let noteIndex=new Map(),noteGroups=[],issueByKey=new Map();
+function buildNoteIndex(){
+ noteIndex=new Map();issueByKey=new Map();const groups=new Map();
+ for(const i of result.issues){if(!i.key)continue;if(!issueByKey.has(i.key))issueByKey.set(i.key,[]);issueByKey.get(i.key).push(i)}
+ for(const n of result.notes){noteIndex.set(n.key,n);const p=notePeriod(n),k=p+'|'+n.direction;if(!groups.has(k))groups.set(k,{period:p,direction:n.direction,notes:[]});groups.get(k).notes.push(n)}
+ noteGroups=[...groups.values()].sort((a,b)=>a.period.localeCompare(b.period)||a.direction.localeCompare(b.direction));
+}
+const reviewIssues=n=>(issueByKey.get(n.key)||[]).filter(i=>!coverageIssue(i));
+const documentSources=()=>result.sources.filter(k=>k!=='book'||result.bookMode==='documentos');
+function noteStatus(n){
+ const issues=reviewIssues(n);
+ if(issues.some(i=>i.type==='Cancelada'))return 'Cancelada';
+ if(issues.length)return 'Revisar ('+issues.length+')';
+ return documentSources().length<2?'Localizada — sem confronto individual':'Sem divergência detectada';
+}
+function selectedGroups(){
+ const p=$('note-month').value,d=$('note-movement').value,q=$('note-query').value.trim().toLowerCase(),mode=$('note-mode').value;
+ return noteGroups.filter(g=>(!p||g.period===p)&&(!d||g.direction===d)).map(g=>({...g,notes:g.notes.filter(n=>(!q||String(n.num||'').toLowerCase().includes(q)||n.key.includes(q))&&(mode==='all'||reviewIssues(n).length>0))})).filter(g=>g.notes.length);
+}
+function element(d,tag,txt){const el=d.createElement(tag);if(txt!=null)el.textContent=txt;return el}
+function tableFor(d,headers,rows){
+ const t=element(d,'table'),head=t.createTHead(),r=head.insertRow();for(const h of headers)r.append(element(d,'th',h));
+ const body=t.createTBody();for(const row of rows){const tr=body.insertRow();for(const v of row)tr.append(element(d,'td',v??'—'))}return t;
+}
+function noteDetail(d,n,withItems=true){
+ const section=element(d,'div');section.className='note-detail';
+ section.append(element(d,'p','Chave: '+n.key+' · Competência: '+notePeriod(n)+' · '+movementName(n.direction)+' · '+noteStatus(n)));
+ const src=documentSources(),pairs=[['xml','sped'],['sped','book'],['xml','book']].filter(([a,b])=>src.includes(a)&&src.includes(b));
+ for(const k of src){const v=n[k];section.append(element(d,'p',sourceLabels[k]+': '+(v?('Série '+(v.series||'—')+' · Modelo '+(v.model||'—')+' · Emissão '+(v.date||'—')+' · Entrada/saída '+(v.entryDate||'—')+' · '+v.status):'Não localizado')))}
+ if(result.bookMode==='totais P9')section.append(element(d,'p','Livro P9: total mensal, sem dados individuais da nota.'));
+ section.append(tableFor(d,['Campo',...src.map(k=>sourceLabels[k]),...pairs.map(([a,b])=>sourceLabels[b]+' − '+sourceLabels[a])],taxFields.map(f=>[labels[f],...src.map(k=>n[k]?money(n[k].values?.[f]):'Não localizado'),...pairs.map(([a,b])=>n[a]?.values?.[f]!=null&&n[b]?.values?.[f]!=null?money(n[b].values[f]-n[a].values[f]):'Não disponível')])));
+ for(const k of src){
+  const v=n[k];if(!v)continue;
+  const codes=[...new Set([...(v.cfops||[]),...(v.analytic||[]).map(a=>a.cfop),...(v.items||[]).map(a=>a.cfop)].filter(Boolean))];
+  const csts=[...new Set([...(v.csts||[]),...(v.analytic||[]).map(a=>a.cstICMS),...(v.items||[]).map(a=>a.cstICMS)].filter(Boolean))];
+  section.append(element(d,'p',sourceLabels[k]+' · CFOP: '+(codes.join(', ')||'Não informado')+' · CST/CSOSN: '+(csts.join(', ')||'Não informado')));
+  if(v.analytic?.length){section.append(element(d,'h4',sourceLabels[k]+' — C190 / classificação analítica'),tableFor(d,['CFOP','CST','Alíquota','Valor operação','Base ICMS','ICMS','ICMS-ST','IPI'],v.analytic.map(a=>[a.cfop,a.cstICMS,a.rate,...['valor','bcICMS','icms','st','ipi'].map(f=>money(a.values?.[f]))])))}
+  if(withItems&&v.items?.length){const det=element(d,'details');det.append(element(d,'summary',sourceLabels[k]+' — Itens ('+fmt(v.items.length)+')'));if(d!==document)det.open=true;
+   det.append(tableFor(d,['Item','Produto','CFOP','CST','Valor','Base ICMS','ICMS','PIS','COFINS'],v.items.map(a=>[a.num,a.description||a.code,a.cfop,a.cstICMS,...['valor','bcICMS','icms','pis','cofins'].map(f=>money(a.values?.[f]))])));section.append(det)}
+ }
+ const issues=issueByKey.get(n.key)||[];
+ if(issues.length){section.append(element(d,'h4','Ocorrências da nota'),tableFor(d,['Fonte','Ocorrência','Campo','Valor A','Valor B','Orientação'],issues.map(i=>[i.source,i.type,i.field,valueText(i.left,i),valueText(i.right,i),i.note])))}
+ return section;
+}
+function drawNotes(){
+ const groups=selectedGroups(),root=$('note-groups');root.replaceChildren();
+ $('note-count').textContent=fmt(groups.reduce((a,g)=>a+g.notes.length,0))+' notas em '+fmt(groups.length)+' grupos. Abra uma competência para consultar.';
+ for(const g of groups){
+  const det=element(document,'details');det.append(element(document,'summary',g.period+' · '+movementName(g.direction)+' · '+fmt(g.notes.length)+' notas · '+fmt(g.notes.filter(n=>reviewIssues(n).length).length)+' para revisar'));
+  let loaded=false;
+  det.addEventListener('toggle',()=>{if(!det.open||loaded)return;loaded=true;let pg=0;const controls=element(document,'div'),list=element(document,'div'),prev=element(document,'button','Anterior'),next=element(document,'button','Próxima'),status=element(document,'span');prev.className=next.className='secondary';controls.className='actions';controls.append(prev,status,next);det.append(controls,list);
+   const drawPage=()=>{list.replaceChildren();const count=Math.ceil(g.notes.length/50);status.textContent='Página '+(pg+1)+' de '+count;prev.disabled=pg===0;next.disabled=pg+1>=count;
+    for(const n of g.notes.slice(pg*50,pg*50+50)){const nd=element(document,'details');nd.append(element(document,'summary','NF '+(n.num||'—')+' · '+noteStatus(n)+' · '+documentSources().map(k=>sourceLabels[k]+': '+money(n[k]?.values?.valor)).join(' | ')));let opened=false;nd.addEventListener('toggle',()=>{if(nd.open&&!opened){opened=true;nd.append(noteDetail(document,n))}});list.append(nd)}
+   };prev.onclick=()=>{if(pg>0){pg--;drawPage()}};next.onclick=()=>{if((pg+1)*50<g.notes.length){pg++;drawPage()}};drawPage();
+  });root.append(det);
+ }
+}
+for(const id of ['note-month','note-movement','note-query','note-mode'])$(id).addEventListener(id==='note-query'?'input':'change',()=>{if(result)drawNotes()});
+
 function render(){
  $('meta').textContent='CNPJ '+meta.cnpj+' · Competência '+result.period+' · Fontes: '+result.sources.map(k=>sourceLabels[k]).join(' × ')+' · Livro: '+result.bookMode+(meta.version?' · SPED '+meta.version:'')+' · Tolerância por campo '+money(meta.tolerance);
  const counts=[['Documentos localizados',result.notes.length],['Ocorrências de conferência',result.issues.length],['Ausências identificadas',result.issues.filter(i=>i.type==='Documento ausente').length],['Duplicidades',result.issues.filter(i=>i.type==='Duplicidade').length],['Ocorrências de cancelamento',result.issues.filter(i=>i.type==='Cancelada').length],['Divergências de valores e classificação',result.issues.filter(i=>/divergente/.test(i.type)).length],['Campos mensais divergentes',result.monthlyRows.filter(r=>r.status==='DIVERGENTE').length]];
@@ -146,7 +209,7 @@ function render(){
  for(const row of totalRows(money))rowInto($('totals'),row);
  $('monthly-head').replaceChildren(...monthlyHeaders().map(h=>{const th=document.createElement('th');th.textContent=h;return th}));
  populateSelect('month-filter',result.monthlyRows.map(r=>r.period));$('movement-filter').value='';$('monthly-only').checked=false;drawMonthly();
- populateSelect('kind',result.issues.map(i=>i.type));populateSelect('source',result.issues.map(i=>i.source));$('search').value='';page=0;draw();$('report').hidden=false;
+ populateSelect('kind',result.issues.map(i=>i.type));populateSelect('source',result.issues.map(i=>i.source));$('search').value='';page=0;draw();buildNoteIndex();populateSelect('note-month',noteGroups.map(g=>g.period));$('note-movement').value='';$('note-mode').value='all';$('note-query').value='';drawNotes();$('report').hidden=false;
 }
 $('run').onclick=async()=>{
  if(busy)return;
@@ -179,19 +242,47 @@ $('excel').onclick=()=>{
   sheet(wb,'Totais',[totalHeaders(),...totalRows(v=>v==null?'':v/100)],[18,...totalColumns().map(()=>22)]);
   sheet(wb,'Movimentação mensal',[monthlyHeaders(),...result.monthlyRows.map(r=>monthlyValues(r,v=>v==null?'Não disponível':v/100))],[16,14,45,...totalColumns().map(()=>22),24]);
   const docSources=result.sources.filter(k=>k!=='book'||result.bookMode==='documentos');
-  sheet(wb,'Documentos',[['Chave','NF','Movimento',...docSources.map(k=>'Situação '+sourceLabels[k]),...docSources.flatMap(k=>taxFields.map(f=>sourceLabels[k]+' '+labels[f]))],...result.notes.map(n=>[n.key,n.num,n.direction,...docSources.map(k=>n[k]?.status||'Não disponível'),...docSources.flatMap(k=>taxFields.map(f=>n[k]?.values[f]==null?'':n[k].values[f]/100))])],[49,14,14,...docSources.map(()=>25),...Array(docSources.length*taxFields.length).fill(18)]);
+  sheet(wb,'Documentos',[['Chave','NF','Competência','Movimento',...docSources.map(k=>'Situação '+sourceLabels[k]),...docSources.flatMap(k=>taxFields.map(f=>sourceLabels[k]+' '+labels[f]))],...result.notes.map(n=>[n.key,n.num,notePeriod(n),n.direction,...docSources.map(k=>n[k]?.status||'Não disponível'),...docSources.flatMap(k=>taxFields.map(f=>n[k]?.values[f]==null?'':n[k].values[f]/100))])],[49,14,16,14,...docSources.map(()=>25),...Array(docSources.length*taxFields.length).fill(18)]);
   sheet(wb,'Escopo',[['CNPJ',meta.cnpj],['Competência',result.period],['Fontes',result.sources.map(k=>sourceLabels[k]).join(' × ')],['Livro',result.bookMode],['Tolerância por campo',meta.tolerance/100],['Cobertura',$('coverage').textContent],['Observação','Diferenças nominais não constituem conclusão sobre imposto devido. PIS/COFINS somente quando informados.']],[28,115]);
   XLSX.writeFile(wb,'fiscora-conferencia-tripla-'+result.period+'.xlsx');
  }catch(e){$('status').textContent='Falha na exportação: '+e.message}
 };
+function openReport(title){
+ const win=window.open('','_blank');if(!win){$('status').textContent='Permita pop-ups para imprimir o relatório.';return null}
+ const d=win.document;d.title=title;const style=element(d,'style');
+ style.textContent='@page{size:A4 landscape;margin:12mm}body{font:11px Arial;color:#302340;margin:0}h1{font-size:22px;color:#422764;border-bottom:3px solid #7042a4;padding-bottom:9px}h2{font-size:16px;color:#422764;margin:18px 0 6px}h3{font-size:13px;margin:12px 0 5px}h4{font-size:11px;margin:9px 0 5px}p{line-height:1.4;margin:5px 0;overflow-wrap:anywhere}table{border-collapse:collapse;width:100%;font-size:9px;margin:6px 0 12px}th,td{border:1px solid #ddd;padding:5px;text-align:left;vertical-align:top;overflow-wrap:anywhere}th{background:#eee8f5;color:#35224f}thead{display:table-header-group}tr{break-inside:avoid}h2,h3,h4{break-after:avoid}.diff td{color:#9c2525;background:#fff0ef}.note-detail{margin:8px 0 16px}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}';
+ d.head.append(style);d.body.append(element(d,'h1',title),element(d,'p',$('meta').textContent),element(d,'p','Gerado em '+new Date().toLocaleString('pt-BR')));
+ return {win,d};
+}
+function reportTable(d,headers,rows){const t=tableFor(d,headers,rows);d.body.append(t);return t}
+function finishReport(win,d){d.body.append(element(d,'p','Documento preliminar de conferência. Não substitui a escrituração nem determina imposto devido.'));win.focus();win.print()}
 $('pdf').onclick=()=>{
  if(!result)return;
- const win=window.open('','_blank');if(!win){$('status').textContent='Permita pop-ups para imprimir o relatório.';return}
- const d=win.document;d.title='Diferenças XML SPED Livro Fiscal';const style=d.createElement('style');style.textContent='@page{size:A4 landscape;margin:10mm}body{font:12px Arial;color:#252030}h1{font-size:20px}table{border-collapse:collapse;width:100%;font-size:9px}th,td{border:1px solid #ddd;padding:5px;text-align:left;vertical-align:top;overflow-wrap:anywhere}th{background:#eee}thead{display:table-header-group}tr{break-inside:avoid}';d.head.append(style);
- const add=(tag,txt)=>{const el=d.createElement(tag);el.textContent=txt;d.body.append(el);return el};
- add('h1','Fiscora — Relatório específico de diferenças');add('p',$('meta').textContent);add('p',$('coverage').textContent);add('h2','Totais por movimento');
- const makeTable=(headers,rows)=>{const t=d.createElement('table'),head=t.createTHead(),r=head.insertRow();for(const h of headers){const th=d.createElement('th');th.textContent=h;r.append(th)}const body=t.createTBody();for(const row of rows){const tr=body.insertRow();for(const v of row){const td=tr.insertCell();td.textContent=v??'—'}}d.body.append(t)};
- makeTable(totalHeaders(),totalRows(money));
- add('h2','Movimentação mensal — entradas, saídas e ICMS');add('p',$('monthly-note').textContent);makeTable(monthlyHeaders(),result.monthlyRows.map(r=>monthlyValues(r,money)));
- add('h2','Ocorrências — '+fmt(result.issues.length));makeTable(['Fonte','Ocorrência','NF / chave','Campo','Fonte A','Fonte B','Orientação'],result.issues.map(issueValues));add('p','Documento preliminar de conferência; não substitui escrituração nem determina imposto devido.');win.focus();win.print();
+ const report=openReport('Fiscora — Relatório detalhado de conferência fiscal');if(!report)return;
+ const {win,d}=report;const add=(tag,t)=>d.body.append(element(d,tag,t));
+ add('h2','1. Resumo executivo');add('p',$('coverage').textContent);
+ const divergences=result.monthlyRows.filter(r=>r.status==='DIVERGENTE'),review=result.issues.filter(i=>!coverageIssue(i)),coverage=result.issues.filter(coverageIssue);
+ reportTable(d,['Documentos localizados','Campos mensais divergentes','Ocorrências para revisão','Avisos C170/C190'],[[fmt(result.notes.length),fmt(divergences.length),fmt(review.length),fmt(coverage.length)]]);
+ reportTable(d,totalHeaders(),totalRows(money));
+ add('h2','2. Movimentação mensal detalhada');add('p',$('monthly-note').textContent);
+ const monthlyGroups=new Map();for(const r of result.monthlyRows){if(!monthlyGroups.has(r.period))monthlyGroups.set(r.period,[]);monthlyGroups.get(r.period).push(r)}
+ for(const [p,rs] of monthlyGroups){add('h3','Competência '+p);const t=reportTable(d,monthlyHeaders(),rs.map(r=>monthlyValues(r,money)));rs.forEach((r,i)=>{if(r.status==='DIVERGENTE')t.tBodies[0].rows[i].className='diff'})}
+ add('h2','3. Divergências e ocorrências por competência');
+ add('p','Ocorrências sem vínculo documental ficam em seção própria. Avisos C170/C190 são consolidados, não repetidos por nota. Para obter todas as notas e seus dados, use o PDF de notas individuais.');
+ for(const g of noteGroups){const rows=g.notes.flatMap(n=>reviewIssues(n).map(i=>issueValues(i)));if(rows.length){add('h3',g.period+' · '+movementName(g.direction)+' · '+fmt(rows.length)+' ocorrências');reportTable(d,['Fonte','Ocorrência','NF / chave','Campo','Fonte A','Fonte B','Orientação'],rows)}}
+ const unlinked=review.filter(i=>!noteIndex.has(i.key)&&i.type!=='Total mensal divergente');
+ if(unlinked.length){add('h3','Ocorrências sem nota vinculada');reportTable(d,['Fonte','Ocorrência','NF / chave','Campo','Fonte A','Fonte B','Orientação'],unlinked.map(issueValues))}
+ if(coverage.length){add('h2','4. Avisos de cobertura');const m=new Map();for(const i of coverage)m.set(i.type,(m.get(i.type)||0)+1);reportTable(d,['Aviso','Quantidade'],[...m]);add('p','A ausência desses registros pode decorrer de dispensa. Consulte o Excel completo para a lista de avisos.')}
+ finishReport(win,d);
+};
+$('pdf-notes').onclick=()=>{
+ if(!result)return;
+ const groups=selectedGroups(),count=groups.reduce((a,g)=>a+g.notes.length,0);
+ if(!count){$('note-count').textContent='Nenhuma nota corresponde aos filtros.';return}
+ if(count>2000){$('note-count').textContent='O PDF detalhado contém '+fmt(count)+' notas. Selecione uma competência ou refine os filtros até 2.000 notas por PDF. O Excel completo permanece disponível.';return}
+ const report=openReport('Fiscora — Anexo de notas individuais');if(!report)return;
+ const {win,d}=report;d.body.append(element(d,'p',fmt(count)+' notas · Filtros: '+($('note-month').value||'Todas as competências')+' · '+($('note-movement').value||'Todos os movimentos')+' · '+($('note-mode').value==='review'?'Somente revisão':'Todas as notas')+' · Pesquisa: '+($('note-query').value||'—')));
+ if(result.bookMode==='totais P9')d.body.append(element(d,'p','O Livro P9 não permite confronto individual. As notas abaixo provêm das fontes documentais enviadas.'));
+ for(const g of groups){d.body.append(element(d,'h2',g.period+' · '+movementName(g.direction)+' · '+fmt(g.notes.length)+' notas'));for(const n of g.notes){d.body.append(element(d,'h3','NF '+(n.num||'—')),noteDetail(d,n,true))}}
+ finishReport(win,d);
 };
