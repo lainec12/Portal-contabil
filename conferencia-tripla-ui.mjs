@@ -1,4 +1,4 @@
-import {parseSped,parseXml,parseBookRows,reconcileThree,taxFields,labels} from './conferencia-tripla.mjs';
+import {parseSped,parseXml,parseBookRows,reconcileThree,taxFields,labels} from './conferencia-tripla.mjs?v=20261127-pares';
 import {cents,parseDelimited} from './sheet-compare.mjs';
 const $=id=>document.getElementById(id),fmt=n=>Number(n).toLocaleString('pt-BR'),money=n=>n==null?'Não disponível':(n/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const bookHeaders=['chv_nfe','num_doc','ser','ind_oper','cod_sit','vl_doc','cfop','cst_icms','vl_bc_icms','vl_icms','vl_bc_icms_st','vl_icms_st','vl_ipi','vl_pis','vl_cofins'];
@@ -114,29 +114,37 @@ function draw(){
  $('prev').disabled=page===0;$('next').disabled=page>=pages-1;
 }
 function populateSelect(id,values){const s=$(id);s.replaceChildren(new Option('Todas',''),...[...new Set(values)].sort().map(v=>new Option(v,v)))}
+const sourceLabels={xml:'XML',sped:'SPED',book:'Livro Fiscal'};
+function totalColumns(){
+ const names=result.sources,has=k=>names.includes(k);
+ return [...names.map(k=>[k,sourceLabels[k]]),...(has('xml')&&has('sped')?[['xmlSped','SPED − XML']]:[]),...(has('sped')&&has('book')?[['spedBook','Livro − SPED']]:[]),...(has('xml')&&has('book')?[['xmlBook','Livro − XML']]:[])];
+}
+function totalHeaders(){return ['Movimento',...totalColumns().map(([,label])=>label)]}
+function totalRows(format){return result.totals.map(t=>[t.direction,...totalColumns().map(([k])=>format(t[k]))])}
 function render(){
- $('meta').textContent='CNPJ '+meta.cnpj+' · Competência '+result.period+' · Livro: '+result.bookMode+' · SPED '+meta.version+' · Tolerância por campo '+money(meta.tolerance);
+ $('meta').textContent='CNPJ '+meta.cnpj+' · Competência '+result.period+' · Fontes: '+result.sources.map(k=>sourceLabels[k]).join(' × ')+' · Livro: '+result.bookMode+(meta.version?' · SPED '+meta.version:'')+' · Tolerância por campo '+money(meta.tolerance);
  const counts=[['Notas cruzadas / localizadas',result.notes.length],['Ocorrências de conferência',result.issues.length],['Ausências identificadas',result.issues.filter(i=>i.type==='Documento ausente').length],['Duplicidades',result.issues.filter(i=>i.type==='Duplicidade').length],['Ocorrências de cancelamento',result.issues.filter(i=>i.type==='Cancelada').length],['Divergências de valores e classificação',result.issues.filter(i=>/divergente/.test(i.type)).length]];
  $('metrics').replaceChildren(...counts.map(([name,n])=>{const d=document.createElement('div'),b=document.createElement('b');d.className='metric';d.textContent=name;b.textContent=fmt(n);d.append(b);return d}));
- $('coverage').textContent=(result.bookMode==='totais P9'?'P9 comparado somente por totais de movimento do período; se faltar total de algum mês para um movimento, o total correspondente fica indisponível. Não há confronto individual de notas com o Livro. ':'Livro por documento: campos ausentes não comparados; competência das planilhas depende do escopo confirmado. ')+
- 'SPED: '+fmt(meta.c170)+' C170 e '+fmt(meta.c190)+' C190 lidos. A ausência de registros ou documentos não comprova erro fiscal. Totais são preliminares, por chave válida, sem duplicar documentos; cancelados/excluídos não somados. Não há consulta SEFAZ. Diferenças de competência e de escrituração exigem revisão.';
+ $('coverage').textContent=(result.bookMode==='não enviado'?'Livro Fiscal não enviado: não comparado. ':result.bookMode==='totais P9'?'P9 comparado somente por totais de movimento do período; se faltar total de algum mês para um movimento, o total correspondente fica indisponível. Não há confronto individual de notas com o Livro. ':'Livro por documento: campos ausentes não comparados; competência das planilhas depende do escopo confirmado. ')+
+ (result.sources.includes('sped')?'SPED: '+fmt(meta.c170)+' C170 e '+fmt(meta.c190)+' C190 lidos. ':'SPED não enviado: não comparado. ')+(result.sources.includes('xml')?'':'XML não enviado: não comparado. ')+ 'A ausência de registros ou documentos não comprova erro fiscal. Totais são preliminares, por chave válida, sem duplicar documentos; cancelados/excluídos não somados. Não há consulta SEFAZ. Diferenças de competência e de escrituração exigem revisão.';
+ $('total-head').replaceChildren(...totalHeaders().map(h=>{const th=document.createElement('th');th.textContent=h;return th}));
  $('totals').replaceChildren();
- for(const t of result.totals)rowInto($('totals'),[t.direction,...['xml','sped','book','xmlSped','spedBook'].map(k=>money(t[k]))]);
+ for(const row of totalRows(money))rowInto($('totals'),row);
  populateSelect('kind',result.issues.map(i=>i.type));populateSelect('source',result.issues.map(i=>i.source));$('search').value='';page=0;draw();$('report').hidden=false;
 }
 $('run').onclick=async()=>{
  if(busy)return;
  const cnpj=$('cnpj').value.replace(/\D/g,''),period=$('period').value,periodEnd=$('periodEnd')?.value||period,tolerance=cents($('tolerance').value),files=[...$('xml').files],spedFiles=[...$('sped').files],bookFiles=[...$('book').files];
- if(!/^\d{14}$/.test(cnpj)||!period||tolerance==null||tolerance<0||!files.length||!spedFiles.length||!bookFiles.length||!$('confirm').checked){$('status').textContent='Informe CNPJ, período de competências, tolerância válida, arquivos das três fontes e confirme o escopo.';return}
+ if(!/^\d{14}$/.test(cnpj)||!period||tolerance==null||tolerance<0||[files,spedFiles,bookFiles].filter(f=>f.length).length<2||!$('confirm').checked){$('status').textContent='Informe CNPJ, período de competências, tolerância válida, arquivos de pelo menos duas fontes e confirme o escopo.';return}
  const id=++runId;state(true);$('report').hidden=true;result=null;
  try{
   const months=monthsBetween(period,periodEnd);
-  progress(5,'Lendo SPED Fiscal...');await delay();const sped=await readSpeds(spedFiles,cnpj,months,id);check(id);
-  progress(18,'Lendo XMLs e eventos...');await delay();const xml=await readXml(files,cnpj,id);check(id);
-  progress(65,'Lendo Livro Fiscal...');await delay();const book=await readBooks(bookFiles,cnpj,months,id);check(id);
+  progress(5,'Lendo SPED Fiscal...');await delay();const sped=spedFiles.length?await readSpeds(spedFiles,cnpj,months,id):null;check(id);
+  progress(18,'Lendo XMLs e eventos...');await delay();const xml=files.length?await readXml(files,cnpj,id):null;check(id);
+  progress(65,'Lendo Livro Fiscal...');await delay();const book=bookFiles.length?await readBooks(bookFiles,cnpj,months,id):null;check(id);
   progress(83,'Cruzando chaves e comparando campos...');await delay();
   result=reconcileThree({xml,sped,book,period,periodEnd,tolerance});
-  meta={cnpj,version:sped.header.version,c170:sped.c170,c190:sped.c190,tolerance};
+  meta={cnpj,version:sped?.header.version||'',c170:sped?.c170||0,c190:sped?.c190||0,tolerance};
   progress(97,'Preparando relatório...');await delay();check(id);render();
   $('status').textContent='100% — Conferência concluída: '+fmt(result.notes.length)+' documentos; '+fmt(result.issues.length)+' ocorrências.';
  }catch(e){if(id===runId)$('status').textContent='Não concluído: '+e.message}
@@ -152,9 +160,10 @@ $('excel').onclick=()=>{
  try{
   const wb=XLSX.utils.book_new();
   sheet(wb,'Diferenças',[['Fonte','Ocorrência','NF','Chave','Movimento','Campo','Fonte A','Fonte B','Orientação'],...result.issues.map(i=>[i.source,i.type,i.num,i.key,i.direction,i.field,typeof i.left==='number'?i.left/100:i.left??'',typeof i.right==='number'?i.right/100:i.right??'',i.note])],[23,32,13,49,13,34,25,25,100]);
-  sheet(wb,'Totais',[['Movimento','XML (R$)','SPED (R$)','Livro (R$)','SPED - XML','Livro - SPED'],...result.totals.map(t=>[t.direction,...['xml','sped','book','xmlSped','spedBook'].map(k=>t[k]==null?'':t[k]/100)])],[18,20,20,20,20,20]);
-  sheet(wb,'Documentos',[['Chave','NF','Movimento','Situação XML','Situação SPED','Situação Livro',...['XML','SPED','Livro'].flatMap(s=>taxFields.map(f=>s+' '+labels[f]))],...result.notes.map(n=>[n.key,n.num,n.direction,...['xml','sped','book'].map(k=>n[k]?.status||'Não disponível'),...['xml','sped','book'].flatMap(k=>taxFields.map(f=>n[k]?.values[f]==null?'':n[k].values[f]/100))])],[49,14,14,25,25,25,...Array(24).fill(18)]);
-  sheet(wb,'Escopo',[['CNPJ',meta.cnpj],['Competência',result.period],['Livro',result.bookMode],['Tolerância por campo',meta.tolerance/100],['Cobertura',$('coverage').textContent],['Observação','Diferenças nominais não constituem conclusão sobre imposto devido. PIS/COFINS somente quando informados.']],[28,115]);
+  sheet(wb,'Totais',[totalHeaders(),...totalRows(v=>v==null?'':v/100)],[18,...totalColumns().map(()=>22)]);
+  const docSources=result.sources.filter(k=>k!=='book'||result.bookMode==='documentos');
+  sheet(wb,'Documentos',[['Chave','NF','Movimento',...docSources.map(k=>'Situação '+sourceLabels[k]),...docSources.flatMap(k=>taxFields.map(f=>sourceLabels[k]+' '+labels[f]))],...result.notes.map(n=>[n.key,n.num,n.direction,...docSources.map(k=>n[k]?.status||'Não disponível'),...docSources.flatMap(k=>taxFields.map(f=>n[k]?.values[f]==null?'':n[k].values[f]/100))])],[49,14,14,...docSources.map(()=>25),...Array(docSources.length*taxFields.length).fill(18)]);
+  sheet(wb,'Escopo',[['CNPJ',meta.cnpj],['Competência',result.period],['Fontes',result.sources.map(k=>sourceLabels[k]).join(' × ')],['Livro',result.bookMode],['Tolerância por campo',meta.tolerance/100],['Cobertura',$('coverage').textContent],['Observação','Diferenças nominais não constituem conclusão sobre imposto devido. PIS/COFINS somente quando informados.']],[28,115]);
   XLSX.writeFile(wb,'fiscora-conferencia-tripla-'+result.period+'.xlsx');
  }catch(e){$('status').textContent='Falha na exportação: '+e.message}
 };
@@ -165,6 +174,6 @@ $('pdf').onclick=()=>{
  const add=(tag,txt)=>{const el=d.createElement(tag);el.textContent=txt;d.body.append(el);return el};
  add('h1','Fiscora — Relatório específico de diferenças');add('p',$('meta').textContent);add('p',$('coverage').textContent);add('h2','Totais por movimento');
  const makeTable=(headers,rows)=>{const t=d.createElement('table'),head=t.createTHead(),r=head.insertRow();for(const h of headers){const th=d.createElement('th');th.textContent=h;r.append(th)}const body=t.createTBody();for(const row of rows){const tr=body.insertRow();for(const v of row){const td=tr.insertCell();td.textContent=v??'—'}}d.body.append(t)};
- makeTable(['Movimento','XML','SPED','Livro','SPED − XML','Livro − SPED'],result.totals.map(t=>[t.direction,...['xml','sped','book','xmlSped','spedBook'].map(k=>money(t[k]))]));
+ makeTable(totalHeaders(),totalRows(money));
  add('h2','Ocorrências — '+fmt(result.issues.length));makeTable(['Fonte','Ocorrência','NF / chave','Campo','Fonte A','Fonte B','Orientação'],result.issues.map(issueValues));add('p','Documento preliminar de conferência; não substitui escrituração nem determina imposto devido.');win.focus();win.print();
 };
